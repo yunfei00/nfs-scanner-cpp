@@ -30,6 +30,7 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
+          modules: 'qtserialport'
           cache: 'true'
           setup-python: 'true'
 

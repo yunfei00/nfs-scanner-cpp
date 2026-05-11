@@ -30,6 +30,10 @@ function Resolve-CMakePath {
         "C:/Program Files/Microsoft Visual Studio/2022/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
         "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
         "C:/Program Files/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2022/Professional/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2022/Enterprise/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
         "C:/Program Files/CMake/bin/cmake.exe",
         "C:/Program Files (x86)/CMake/bin/cmake.exe"
     )
@@ -75,6 +79,10 @@ if (-not (Test-Path $QtPath)) {
 
 if (-not (Test-Path (Join-Path $QtPath "lib/cmake/Qt6/Qt6Config.cmake"))) {
     throw "Qt6Config.cmake was not found under QtPath: $QtPath. Please run: powershell -ExecutionPolicy Bypass -File scripts/setup_qt_windows.ps1"
+}
+
+if (-not (Test-Path (Join-Path $QtPath "lib/cmake/Qt6SerialPort/Qt6SerialPortConfig.cmake"))) {
+    throw "Qt6SerialPortConfig.cmake was not found under QtPath: $QtPath. Please run: powershell -ExecutionPolicy Bypass -File scripts/setup_qt_windows.ps1"
 }
 
 if (-not (Test-CMakeGenerator -CMakeExe $cmakeExe -GeneratorName $generator)) {

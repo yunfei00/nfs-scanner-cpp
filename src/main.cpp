@@ -3,16 +3,17 @@
 #include <QIODevice>
 #include <QMetaType>
 
+#include "app/AppVersion.h"
 #include "core/ScanPoint.h"
 #include "ui/MainWindow.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    QApplication::setOrganizationName(QStringLiteral("NFS Scanner"));
+    QApplication::setOrganizationName(QStringLiteral(APP_NAME));
     QApplication::setApplicationName(QStringLiteral("NFSScanner"));
-    QApplication::setApplicationDisplayName(QStringLiteral("NFS Scanner"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.1"));
+    QApplication::setApplicationDisplayName(QStringLiteral(APP_NAME));
+    QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
 
     qRegisterMetaType<NFSScanner::Core::ScanPoint>("NFSScanner::Core::ScanPoint");
 

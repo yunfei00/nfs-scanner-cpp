@@ -1,3 +1,7 @@
+param(
+    [string]$QtPath = "C:/Qt/6.8.3/msvc2022_64"
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -18,4 +22,9 @@ if (-not $exe) {
 }
 
 Write-Host "Starting: $($exe.FullName)"
+if (Test-Path (Join-Path $QtPath "bin")) {
+    $env:PATH = "$(Join-Path $QtPath "bin");$env:PATH"
+} else {
+    Write-Host "Qt bin directory was not found: $(Join-Path $QtPath "bin")"
+}
 & $exe.FullName

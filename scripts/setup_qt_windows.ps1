@@ -51,6 +51,7 @@ $pythonExe = Resolve-PythonPath
 $compilerDir = Get-QtCompilerDirectory -AqtArch $Arch
 $qtPath = Join-Path (Join-Path $QtRoot $QtVersion) $compilerDir
 $qtConfigPath = Join-Path $qtPath "lib/cmake/Qt6/Qt6Config.cmake"
+$serialPortConfigPath = Join-Path $qtPath "lib/cmake/Qt6SerialPort/Qt6SerialPortConfig.cmake"
 
 Write-Host "Python:     $pythonExe"
 Write-Host "Qt version: $QtVersion"
@@ -58,8 +59,8 @@ Write-Host "Qt root:    $QtRoot"
 Write-Host "Qt arch:    $Arch"
 Write-Host "Qt path:    $qtPath"
 
-if (Test-Path $qtConfigPath) {
-    Write-Host "Qt is already installed."
+if ((Test-Path $qtConfigPath) -and (Test-Path $serialPortConfigPath)) {
+    Write-Host "Qt and Qt SerialPort are already installed."
     Write-Host "Qt installed successfully."
     Write-Host "QtPath: $qtPath"
     exit 0
@@ -84,14 +85,24 @@ if (-not (Test-PythonModule -PythonExe $pythonExe -ModuleName "aqt" -Arguments @
     }
 }
 
-Write-Host "Installing Qt with aqtinstall..."
-& $pythonExe -m aqt install-qt windows desktop $QtVersion $Arch --outputdir $QtRoot
+if (Test-Path $qtConfigPath) {
+    Write-Host "Qt base is already installed, but Qt SerialPort is missing."
+} else {
+    Write-Host "Qt base is not installed."
+}
+
+Write-Host "Installing Qt with Qt SerialPort using aqtinstall..."
+& $pythonExe -m aqt install-qt windows desktop $QtVersion $Arch -m qtserialport --outputdir $QtRoot
 if ($LASTEXITCODE -ne 0) {
-    throw "aqtinstall failed to install Qt $QtVersion $Arch into $QtRoot."
+    throw "aqtinstall failed to install Qt $QtVersion $Arch with qtserialport into $QtRoot."
 }
 
 if (-not (Test-Path $qtConfigPath)) {
     throw "Qt installation finished, but Qt6Config.cmake was not found: $qtConfigPath"
+}
+
+if (-not (Test-Path $serialPortConfigPath)) {
+    throw "Qt installation finished, but Qt6SerialPortConfig.cmake was not found: $serialPortConfigPath"
 }
 
 Write-Host "Qt installed successfully."

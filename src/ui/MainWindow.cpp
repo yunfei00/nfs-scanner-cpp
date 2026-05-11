@@ -1,7 +1,12 @@
 #include "ui/MainWindow.h"
 
+#include "app/AppVersion.h"
+#include "core/ScanManager.h"
+#include "devices/motion/SerialMotionController.h"
+
 #include <QAbstractScrollArea>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleValidator>
 #include <QFormLayout>
@@ -12,10 +17,14 @@
 #include <QIntValidator>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSerialPortInfo>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -27,6 +36,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace NFSScanner::UI {
 
@@ -88,11 +98,15 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setObjectName(QStringLiteral("mainWindow"));
-    setWindowTitle(QStringLiteral("NFS Scanner v1.0.0 - 近场扫描系统"));
+    setWindowTitle(QStringLiteral(APP_NAME " v" APP_VERSION " - 近场扫描系统"));
     resize(1600, 900);
 
     setupUi();
     setupStatusBar();
+    motionController_ = new Devices::Motion::SerialMotionController(this);
+    setupMotionController();
+    scanManager_ = new Core::ScanManager(this);
+    setupScanManager();
 
     clockTimer_ = new QTimer(this);
     connect(clockTimer_, &QTimer::timeout, this, &MainWindow::updateStatusBar);
@@ -104,10 +118,15 @@ MainWindow::MainWindow(QWidget *parent)
 
     updateActionButtons();
     updateStatusBar();
-    appendLog(QStringLiteral("系统初始化完成，当前为 UI Mock 模式，未连接真实硬件。"));
+    appendLog(QStringLiteral("系统初始化完成，默认启用模拟模式，未发送真实串口命令。"));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    if (motionController_ && motionController_->isOpen()) {
+        motionController_->closePort();
+    }
+}
 
 void MainWindow::setupUi()
 {
@@ -152,6 +171,8 @@ QGroupBox *MainWindow::createSerialGroup()
 
     serialPortCombo_ = new QComboBox(group);
     serialPortCombo_->addItems(QStringList{QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3")});
+    serialPortCombo_->setMinimumContentsLength(8);
+    serialPortCombo_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
 
     baudRateCombo_ = new QComboBox(group);
     baudRateCombo_->addItems(QStringList{QStringLiteral("9600"),
@@ -165,19 +186,38 @@ QGroupBox *MainWindow::createSerialGroup()
     openSerialButton_ = new QPushButton(QStringLiteral("打开串口"), group);
     closeSerialButton_ = new QPushButton(QStringLiteral("关闭串口"), group);
     refreshSerialButton_ = new QPushButton(QStringLiteral("刷新串口"), group);
+    mockModeCheck_ = new QCheckBox(QStringLiteral("模拟模式"), group);
+    mockModeCheck_->setChecked(true);
     closeSerialButton_->setEnabled(false);
 
     layout->addWidget(new QLabel(QStringLiteral("端口号"), group), 0, 0);
     layout->addWidget(serialPortCombo_, 0, 1, 1, 2);
     layout->addWidget(new QLabel(QStringLiteral("波特率"), group), 1, 0);
     layout->addWidget(baudRateCombo_, 1, 1, 1, 2);
-    layout->addWidget(openSerialButton_, 2, 0);
-    layout->addWidget(closeSerialButton_, 2, 1);
-    layout->addWidget(refreshSerialButton_, 2, 2);
+    layout->addWidget(mockModeCheck_, 2, 0, 1, 3);
+    layout->addWidget(openSerialButton_, 3, 0);
+    layout->addWidget(closeSerialButton_, 3, 1);
+    layout->addWidget(refreshSerialButton_, 3, 2);
 
     connect(refreshSerialButton_, &QPushButton::clicked, this, &MainWindow::refreshSerialPorts);
     connect(openSerialButton_, &QPushButton::clicked, this, &MainWindow::openSerialPort);
     connect(closeSerialButton_, &QPushButton::clicked, this, &MainWindow::closeSerialPort);
+    connect(mockModeCheck_, &QCheckBox::toggled, this, [this](bool checked) {
+        if (checked) {
+            if (motionController_ && motionController_->isOpen()) {
+                motionController_->closePort();
+            }
+            updateSerialButtons(false);
+            setAppState(QStringLiteral("模拟模式"));
+            appendLog(QStringLiteral("已切换到模拟模式，运动命令不会发送到真实串口。"));
+        } else {
+            updateSerialButtons(motionController_ && motionController_->isOpen());
+            setAppState(motionController_ && motionController_->isOpen()
+                            ? QStringLiteral("串口已连接")
+                            : QStringLiteral("真实串口模式"));
+            appendLog(QStringLiteral("已切换到真实串口模式，请先刷新并打开串口。"));
+        }
+    });
 
     return group;
 }
@@ -288,12 +328,8 @@ QGroupBox *MainWindow::createMotionCommandGroup()
 
     connect(resetButton, &QPushButton::clicked, this, &MainWindow::resetPosition);
     connect(queryButton, &QPushButton::clicked, this, &MainWindow::queryPosition);
-    connect(versionButton, &QPushButton::clicked, this, [this]() {
-        appendLog(QStringLiteral("Mock GRBL Controller v1.0"));
-    });
-    connect(helpButton, &QPushButton::clicked, this, [this]() {
-        appendLog(QStringLiteral("支持命令：$H、?、$I、G1X..Y..Z..F.."));
-    });
+    connect(versionButton, &QPushButton::clicked, this, &MainWindow::readVersion);
+    connect(helpButton, &QPushButton::clicked, this, &MainWindow::readHelp);
     connect(executeButton, &QPushButton::clicked, this, &MainWindow::executeAbsoluteMove);
 
     return group;
@@ -345,13 +381,13 @@ QGroupBox *MainWindow::createTestInfoGroup()
     layout->setContentsMargins(10, 12, 10, 10);
     layout->setSpacing(7);
 
-    auto *projectEdit = new QLineEdit(group);
-    projectEdit->setPlaceholderText(QStringLiteral("请输入项目名称"));
-    auto *testEdit = new QLineEdit(group);
-    testEdit->setPlaceholderText(QStringLiteral("请输入测试名称"));
+    projectNameEdit_ = new QLineEdit(group);
+    projectNameEdit_->setPlaceholderText(QStringLiteral("请输入项目名称"));
+    testNameEdit_ = new QLineEdit(group);
+    testNameEdit_->setPlaceholderText(QStringLiteral("请输入测试名称"));
 
-    layout->addRow(QStringLiteral("项目名称"), projectEdit);
-    layout->addRow(QStringLiteral("测试名称"), testEdit);
+    layout->addRow(QStringLiteral("项目名称"), projectNameEdit_);
+    layout->addRow(QStringLiteral("测试名称"), testNameEdit_);
 
     return group;
 }
@@ -377,6 +413,12 @@ QGroupBox *MainWindow::createActionGroup()
     layout->addWidget(clearLogButton, 1, 0);
     layout->addWidget(searchInstrumentButton, 1, 1, 1, 2);
 
+    scanProgressBar_ = new QProgressBar(group);
+    scanProgressBar_->setRange(0, 1);
+    scanProgressBar_->setValue(0);
+    scanProgressBar_->setTextVisible(true);
+    layout->addWidget(scanProgressBar_, 2, 0, 1, 3);
+
     connect(startScanButton_, &QPushButton::clicked, this, &MainWindow::startScan);
     connect(pauseScanButton_, &QPushButton::clicked, this, &MainWindow::pauseScan);
     connect(stopScanButton_, &QPushButton::clicked, this, &MainWindow::stopScan);
@@ -398,7 +440,7 @@ QGroupBox *MainWindow::createActionGroup()
 QGroupBox *MainWindow::createScanAreaGroup()
 {
     auto *group = new QGroupBox(QStringLiteral("扫描区域"), this);
-    group->setMaximumHeight(132);
+    group->setMaximumHeight(170);
     auto *layout = new QVBoxLayout(group);
     layout->setContentsMargins(10, 12, 10, 10);
 
@@ -425,12 +467,33 @@ QGroupBox *MainWindow::createScanAreaGroup()
     scanTable_->setMaximumHeight(82);
     scanTable_->setMinimumHeight(78);
 
-    const QList<double> defaults{0.0, 0.0, 0.0, 10.0, 10.0, 1.0, 0.5, 0.5, 0.5};
+    const QList<double> defaults{0.0, 0.0, 1.0, 10.0, 10.0, 1.0, 1.0, 1.0, 1.0};
     for (int column = 0; column < defaults.size(); ++column) {
         setScanTableValue(column, defaults.at(column));
     }
 
     layout->addWidget(scanTable_);
+
+    auto *scanOptionRow = new QWidget(group);
+    auto *optionLayout = new QHBoxLayout(scanOptionRow);
+    optionLayout->setContentsMargins(0, 0, 0, 0);
+    optionLayout->setSpacing(8);
+
+    snakeModeCheck_ = new QCheckBox(QStringLiteral("蛇形扫描"), scanOptionRow);
+    snakeModeCheck_->setChecked(true);
+
+    dwellTimeSpinBox_ = new QSpinBox(scanOptionRow);
+    dwellTimeSpinBox_->setRange(50, 10000);
+    dwellTimeSpinBox_->setValue(100);
+    dwellTimeSpinBox_->setSuffix(QStringLiteral(" ms"));
+    dwellTimeSpinBox_->setMaximumWidth(110);
+
+    optionLayout->addWidget(snakeModeCheck_);
+    optionLayout->addStretch(1);
+    optionLayout->addWidget(new QLabel(QStringLiteral("驻留时间"), scanOptionRow));
+    optionLayout->addWidget(dwellTimeSpinBox_);
+    layout->addWidget(scanOptionRow);
+
     return group;
 }
 
@@ -597,6 +660,72 @@ void MainWindow::setupStatusBar()
     setStatusBar(statusBar_);
 }
 
+void MainWindow::setupMotionController()
+{
+    if (!motionController_) {
+        return;
+    }
+
+    connect(motionController_, &Devices::Motion::SerialMotionController::connectedChanged, this, [this](bool connected) {
+        updateSerialButtons(connected);
+        setAppState(connected ? QStringLiteral("串口已连接") : QStringLiteral("串口已关闭"));
+    });
+    connect(motionController_, &Devices::Motion::IMotionController::positionChanged, this, [this](double x, double y, double z) {
+        currentX_ = x;
+        currentY_ = y;
+        currentZ_ = z;
+        updateStatusBar();
+    });
+    connect(motionController_, &Devices::Motion::SerialMotionController::statusChanged, this, &MainWindow::setAppState);
+    connect(motionController_, &Devices::Motion::SerialMotionController::logMessage, this, &MainWindow::appendLog);
+    connect(motionController_, &Devices::Motion::SerialMotionController::rawLineReceived, this, [this](const QString &line) {
+        appendLog(QStringLiteral("接收：%1").arg(line));
+    });
+    connect(motionController_, &Devices::Motion::IMotionController::errorOccurred, this, [this](const QString &message) {
+        appendLog(QStringLiteral("错误：%1").arg(message));
+    });
+}
+
+void MainWindow::setupScanManager()
+{
+    if (!scanManager_) {
+        return;
+    }
+
+    connect(scanManager_, &Core::ScanManager::stateChanged, this, [this](const QString &stateText) {
+        setAppState(stateText);
+        updateActionButtons();
+    });
+    connect(scanManager_, &Core::ScanManager::logMessage, this, &MainWindow::appendLog);
+    connect(scanManager_, &Core::ScanManager::progressChanged, this, &MainWindow::updateScanProgress);
+    connect(scanManager_, &Core::ScanManager::currentPointChanged, this, [this](int, int, double x, double y, double z) {
+        currentX_ = x;
+        currentY_ = y;
+        currentZ_ = z;
+        updateStatusBar();
+    });
+    connect(scanManager_, &Core::ScanManager::estimatedChanged, this, [this](int remainingCount, int estimatedSeconds) {
+        remainingText_ = QString::number(remainingCount);
+        estimatedFinishText_ = QStringLiteral("%1s").arg(estimatedSeconds);
+        updateStatusBar();
+    });
+    connect(scanManager_, &Core::ScanManager::scanFinished, this, [this]() {
+        remainingText_ = QStringLiteral("0");
+        estimatedFinishText_ = QStringLiteral("--");
+        appendLog(QStringLiteral("扫描完成。"));
+        updateActionButtons();
+        updateStatusBar();
+    });
+    connect(scanManager_, &Core::ScanManager::scanError, this, [this](const QString &message) {
+        remainingText_ = QStringLiteral("--");
+        estimatedFinishText_ = QStringLiteral("--");
+        appendLog(QStringLiteral("扫描错误：%1").arg(message));
+        updateActionButtons();
+        updateStatusBar();
+        QMessageBox::warning(this, QStringLiteral("扫描错误"), message);
+    });
+}
+
 void MainWindow::appendLog(const QString &text)
 {
     if (!logEdit_) {
@@ -630,46 +759,163 @@ void MainWindow::setAppState(const QString &state)
     updateStatusBar();
 }
 
+bool MainWindow::isMockMode() const
+{
+    return !mockModeCheck_ || mockModeCheck_->isChecked();
+}
+
+double MainWindow::feedValue() const
+{
+    if (!feedEdit_ || feedEdit_->text().trimmed().isEmpty()) {
+        return 1000.0;
+    }
+
+    bool ok = false;
+    const double feed = feedEdit_->text().toDouble(&ok);
+    return ok && feed > 0.0 ? feed : 1000.0;
+}
+
+bool MainWindow::ensureRealMotionReady()
+{
+    if (isMockMode()) {
+        return false;
+    }
+
+    if (!motionController_ || !motionController_->isOpen()) {
+        appendLog(QStringLiteral("请先打开串口。"));
+        setAppState(QStringLiteral("串口未连接"));
+        return false;
+    }
+
+    return true;
+}
+
+bool MainWindow::validateMotionTarget(double x, double y, double z)
+{
+    auto fail = [this](const QString &axis, double value, const QString &range) {
+        appendLog(QStringLiteral("坐标越界：%1=%2，允许范围 %3")
+                      .arg(axis, mmText(value), range));
+        return false;
+    };
+
+    if (x < 0.0 || x > 200.0) {
+        return fail(QStringLiteral("X"), x, QStringLiteral("0~200"));
+    }
+    if (y < -300.0 || y > 0.0) {
+        return fail(QStringLiteral("Y"), y, QStringLiteral("-300~0"));
+    }
+    if (z < 0.0 || z > 10.0) {
+        return fail(QStringLiteral("Z"), z, QStringLiteral("0~10"));
+    }
+    return true;
+}
+
+void MainWindow::updateSerialButtons(bool connected)
+{
+    if (openSerialButton_) {
+        openSerialButton_->setEnabled(!connected);
+    }
+    if (closeSerialButton_) {
+        closeSerialButton_->setEnabled(connected);
+    }
+}
+
+void MainWindow::updateScanProgress(int current, int total)
+{
+    if (!scanProgressBar_) {
+        return;
+    }
+
+    scanProgressBar_->setRange(0, std::max(1, total));
+    scanProgressBar_->setValue(std::clamp(current, 0, std::max(1, total)));
+    scanProgressBar_->setFormat(QStringLiteral("%1 / %2").arg(current).arg(total));
+}
+
 void MainWindow::refreshSerialPorts()
 {
     serialPortCombo_->clear();
-    serialPortCombo_->addItems(QStringList{QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3")});
-    appendLog(QStringLiteral("串口列表已刷新：COM1、COM2、COM3"));
+    const QList<QSerialPortInfo> ports = QSerialPortInfo::availablePorts();
+    for (const QSerialPortInfo &port : ports) {
+        serialPortCombo_->addItem(port.portName());
+    }
+
+    if (ports.isEmpty()) {
+        appendLog(QStringLiteral("未发现可用串口。"));
+    } else {
+        appendLog(QStringLiteral("串口列表已刷新：发现 %1 个可用串口。").arg(ports.size()));
+    }
 }
 
 void MainWindow::openSerialPort()
 {
-    if (serialPortCombo_->count() == 0) {
-        refreshSerialPorts();
+    if (isMockMode()) {
+        updateSerialButtons(true);
+        setAppState(QStringLiteral("串口已连接"));
+        appendLog(QStringLiteral("当前为模拟模式，未发送真实串口命令。"));
+        appendLog(QStringLiteral("模拟串口已连接：%1，%2")
+                      .arg(serialPortCombo_->currentText().isEmpty() ? QStringLiteral("MOCK") : serialPortCombo_->currentText(),
+                           baudRateCombo_->currentText()));
+        return;
     }
 
-    openSerialButton_->setEnabled(false);
-    closeSerialButton_->setEnabled(true);
-    setAppState(QStringLiteral("串口已连接"));
-    appendLog(QStringLiteral("串口已连接：%1，%2")
-                  .arg(serialPortCombo_->currentText(), baudRateCombo_->currentText()));
+    if (serialPortCombo_->count() == 0 || serialPortCombo_->currentText().trimmed().isEmpty()) {
+        appendLog(QStringLiteral("请先刷新并选择可用串口。"));
+        return;
+    }
+
+    bool baudOk = false;
+    const int baudRate = baudRateCombo_->currentText().toInt(&baudOk);
+    if (!baudOk) {
+        appendLog(QStringLiteral("波特率无效：%1").arg(baudRateCombo_->currentText()));
+        return;
+    }
+
+    if (motionController_) {
+        motionController_->openPort(serialPortCombo_->currentText(), baudRate);
+    }
 }
 
 void MainWindow::closeSerialPort()
 {
-    openSerialButton_->setEnabled(true);
-    closeSerialButton_->setEnabled(false);
-    setAppState(QStringLiteral("就绪"));
-    appendLog(QStringLiteral("串口已关闭。"));
+    if (isMockMode()) {
+        updateSerialButtons(false);
+        setAppState(QStringLiteral("串口已关闭"));
+        appendLog(QStringLiteral("模拟串口已关闭。"));
+        return;
+    }
+
+    if (motionController_) {
+        motionController_->closePort();
+    }
 }
 
 void MainWindow::jogAxis(const QString &axis, double direction)
 {
+    if (!isMockMode()) {
+        if (!ensureRealMotionReady()) {
+            return;
+        }
+        motionController_->jogAxis(axis, direction * jogStep_, feedValue());
+        return;
+    }
+
+    const double targetX = axis == QStringLiteral("X") ? currentX_ + direction * jogStep_ : currentX_;
+    const double targetY = axis == QStringLiteral("Y") ? currentY_ + direction * jogStep_ : currentY_;
+    const double targetZ = axis == QStringLiteral("Z") ? currentZ_ + direction * jogStep_ : currentZ_;
+    if (!validateMotionTarget(targetX, targetY, targetZ)) {
+        return;
+    }
+
     if (axis == QStringLiteral("X")) {
-        currentX_ += direction * jogStep_;
+        currentX_ = targetX;
     } else if (axis == QStringLiteral("Y")) {
-        currentY_ += direction * jogStep_;
+        currentY_ = targetY;
     } else if (axis == QStringLiteral("Z")) {
-        currentZ_ += direction * jogStep_;
+        currentZ_ = targetZ;
     }
 
     updateStatusBar();
-    appendLog(QStringLiteral("点动 %1%2 %3 mm，当前位置 %4")
+    appendLog(QStringLiteral("模拟模式：点动 %1%2 %3 mm，当前位置 %4")
                   .arg(axis,
                        direction > 0.0 ? QStringLiteral("+") : QStringLiteral("-"),
                        mmText(jogStep_),
@@ -678,43 +924,108 @@ void MainWindow::jogAxis(const QString &axis, double direction)
 
 void MainWindow::resetPosition()
 {
+    if (!isMockMode()) {
+        if (ensureRealMotionReady()) {
+            motionController_->home();
+        }
+        return;
+    }
+
     currentX_ = 0.0;
     currentY_ = 0.0;
     currentZ_ = 0.0;
     updateStatusBar();
-    appendLog(QStringLiteral("执行复位，当前位置已清零。"));
+    appendLog(QStringLiteral("模拟模式：执行复位，当前位置已清零。"));
 }
 
 void MainWindow::queryPosition()
 {
-    appendLog(QStringLiteral("当前位置 %1").arg(positionText(currentX_, currentY_, currentZ_)));
+    if (!isMockMode()) {
+        if (ensureRealMotionReady()) {
+            motionController_->queryPosition();
+        }
+        return;
+    }
+
+    appendLog(QStringLiteral("模拟模式：当前位置 %1").arg(positionText(currentX_, currentY_, currentZ_)));
+}
+
+void MainWindow::readVersion()
+{
+    if (!isMockMode()) {
+        if (ensureRealMotionReady()) {
+            motionController_->readVersion();
+        }
+        return;
+    }
+
+    appendLog(QStringLiteral("模拟模式：Mock GRBL Controller v1.0"));
+}
+
+void MainWindow::readHelp()
+{
+    if (!isMockMode()) {
+        if (ensureRealMotionReady()) {
+            motionController_->readHelp();
+        }
+        return;
+    }
+
+    appendLog(QStringLiteral("模拟模式：支持命令 $H、?、$I、G1X..Y..Z..F.."));
 }
 
 void MainWindow::executeAbsoluteMove()
 {
-    bool xOk = false;
-    bool yOk = false;
-    bool zOk = false;
-    bool feedOk = false;
-    const double x = absoluteXEdit_->text().toDouble(&xOk);
-    const double y = absoluteYEdit_->text().toDouble(&yOk);
-    const double z = absoluteZEdit_->text().toDouble(&zOk);
-    const int feed = feedEdit_->text().toInt(&feedOk);
+    auto readOptionalAxis = [this](QLineEdit *edit, const QString &axis, bool &ok) -> std::optional<double> {
+        const QString text = edit ? edit->text().trimmed() : QString();
+        if (text.isEmpty()) {
+            return std::nullopt;
+        }
 
-    if (!xOk || !yOk || !zOk || !feedOk) {
+        bool valueOk = false;
+        const double value = text.toDouble(&valueOk);
+        if (!valueOk) {
+            appendLog(QStringLiteral("%1 坐标参数无效：%2").arg(axis, text));
+            ok = false;
+            return std::nullopt;
+        }
+        return value;
+    };
+
+    bool axesOk = true;
+    const std::optional<double> x = readOptionalAxis(absoluteXEdit_, QStringLiteral("X"), axesOk);
+    const std::optional<double> y = readOptionalAxis(absoluteYEdit_, QStringLiteral("Y"), axesOk);
+    const std::optional<double> z = readOptionalAxis(absoluteZEdit_, QStringLiteral("Z"), axesOk);
+    const double feed = feedValue();
+
+    if (!axesOk) {
         appendLog(QStringLiteral("绝对坐标参数无效，G1 命令未执行。"));
         return;
     }
 
-    currentX_ = x;
-    currentY_ = y;
-    currentZ_ = z;
+    if (!isMockMode()) {
+        if (ensureRealMotionReady()) {
+            motionController_->moveAbs(x, y, z, feed);
+        }
+        return;
+    }
+
+    const double targetX = x.value_or(currentX_);
+    const double targetY = y.value_or(currentY_);
+    const double targetZ = z.value_or(currentZ_);
+    if (!validateMotionTarget(targetX, targetY, targetZ)) {
+        return;
+    }
+
+    currentX_ = targetX;
+    currentY_ = targetY;
+    currentZ_ = targetZ;
     updateStatusBar();
-    appendLog(QStringLiteral("执行 G1 X%1 Y%2 Z%3 F%4，当前位置 %5")
+    appendLog(QStringLiteral("模拟模式：执行 G1 X%1 Y%2 Z%3 F%4，当前位置 %5")
                   .arg(mmText(currentX_),
                        mmText(currentY_),
                        mmText(currentZ_),
-                       QString::number(feed),
+                       QString::number(feed, 'f', 0),
                        positionText(currentX_, currentY_, currentZ_)));
 }
 
@@ -755,61 +1066,61 @@ void MainWindow::syncStepInputsToTable()
 
 void MainWindow::startScan()
 {
-    if (mockScanTimer_->isActive()) {
-        return;
-    }
-
-    if (appState_ == QStringLiteral("已暂停") && !mockScanPoints_.isEmpty() && scanIndex_ < mockScanPoints_.size()) {
-        setAppState(QStringLiteral("扫描中"));
-        appendLog(QStringLiteral("扫描继续。"));
-        mockScanTimer_->start();
-        updateActionButtons();
+    if (!scanManager_) {
         return;
     }
 
     syncStepInputsToTable();
-    mockScanPoints_ = buildMockScanPoints();
-    scanIndex_ = 0;
 
-    if (mockScanPoints_.isEmpty()) {
-        remainingText_ = QStringLiteral("--");
-        estimatedFinishText_ = QStringLiteral("--");
-        setAppState(QStringLiteral("就绪"));
-        appendLog(QStringLiteral("扫描区域参数无效，未生成扫描点。"));
-        updateActionButtons();
-        return;
-    }
+    Core::ScanConfig config;
+    config.startX = scanTableValue(0, 0.0);
+    config.startY = scanTableValue(1, 0.0);
+    config.startZ = scanTableValue(2, 1.0);
+    config.endX = scanTableValue(3, 10.0);
+    config.endY = scanTableValue(4, 10.0);
+    config.endZ = scanTableValue(5, 1.0);
+    config.stepX = scanTableValue(6, 1.0);
+    config.stepY = scanTableValue(7, 1.0);
+    config.stepZ = scanTableValue(8, 1.0);
+    config.feed = feedValue();
+    config.dwellMs = dwellTimeSpinBox_ ? dwellTimeSpinBox_->value() : 100;
+    config.snakeMode = !snakeModeCheck_ || snakeModeCheck_->isChecked();
+    config.projectName = projectNameEdit_ ? projectNameEdit_->text().trimmed() : QString();
+    config.testName = testNameEdit_ ? testNameEdit_->text().trimmed() : QString();
+    config.outputDir = resultDirEdit_ ? resultDirEdit_->text().trimmed() : QStringLiteral("output");
 
-    remainingText_ = QString::number(mockScanPoints_.size());
-    estimatedFinishText_ = QStringLiteral("%1 秒").arg(std::ceil(mockScanPoints_.size() / 10.0), 0, 'f', 0);
-    setAppState(QStringLiteral("扫描中"));
-    appendLog(QStringLiteral("扫描开始，共 %1 个点。").arg(mockScanPoints_.size()));
-    mockScanTimer_->start();
+    remainingText_ = QStringLiteral("--");
+    estimatedFinishText_ = QStringLiteral("--");
+    updateScanProgress(0, 1);
+    scanManager_->startScan(config);
     updateActionButtons();
 }
 
 void MainWindow::pauseScan()
 {
-    if (mockScanTimer_->isActive()) {
-        mockScanTimer_->stop();
+    if (!scanManager_) {
+        return;
     }
-    setAppState(QStringLiteral("已暂停"));
-    appendLog(QStringLiteral("扫描已暂停。"));
+
+    if (scanManager_->state() == Core::ScanState::Running) {
+        scanManager_->pauseScan();
+    } else if (scanManager_->state() == Core::ScanState::Paused) {
+        scanManager_->resumeScan();
+    }
     updateActionButtons();
 }
 
 void MainWindow::stopScan()
 {
-    if (mockScanTimer_->isActive()) {
-        mockScanTimer_->stop();
+    if (!scanManager_) {
+        return;
     }
-    scanIndex_ = 0;
-    mockScanPoints_.clear();
+
+    scanManager_->stopScan();
     remainingText_ = QStringLiteral("--");
     estimatedFinishText_ = QStringLiteral("--");
-    setAppState(QStringLiteral("已停止"));
-    appendLog(QStringLiteral("扫描已停止。"));
     updateActionButtons();
+    updateStatusBar();
 }
 
 void MainWindow::advanceMockScan()
@@ -860,12 +1171,17 @@ void MainWindow::updateActionButtons()
         return;
     }
 
-    const bool running = mockScanTimer_ && mockScanTimer_->isActive();
-    const bool paused = appState_ == QStringLiteral("已暂停");
-    startScanButton_->setText(paused ? QStringLiteral("继续") : QStringLiteral("开始"));
-    startScanButton_->setEnabled(!running);
-    pauseScanButton_->setEnabled(running);
-    stopScanButton_->setEnabled(running || paused);
+    const Core::ScanState state = scanManager_ ? scanManager_->state() : Core::ScanState::Idle;
+    const bool preparing = state == Core::ScanState::Preparing;
+    const bool running = state == Core::ScanState::Running;
+    const bool paused = state == Core::ScanState::Paused;
+    const bool stopping = state == Core::ScanState::Stopping;
+
+    startScanButton_->setText(QStringLiteral("开始"));
+    startScanButton_->setEnabled(!preparing && !running && !paused && !stopping);
+    pauseScanButton_->setText(paused ? QStringLiteral("继续") : QStringLiteral("暂停"));
+    pauseScanButton_->setEnabled(running || paused);
+    stopScanButton_->setEnabled(preparing || running || paused);
 }
 
 QVector<ScanPoint> MainWindow::buildMockScanPoints() const

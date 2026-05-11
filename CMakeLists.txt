@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.1.1
+    VERSION 0.3.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -13,13 +13,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort)
 
 set(PROJECT_SOURCES
     src/main.cpp
 
     src/app/AppContext.h
     src/app/AppContext.cpp
+    src/app/AppVersion.h
 
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
@@ -27,13 +28,21 @@ set(PROJECT_SOURCES
     src/ui/HeatmapView.cpp
 
     src/core/ScanConfig.h
+    src/core/ScanConfig.cpp
     src/core/ScanPoint.h
+    src/core/ScanPoint.cpp
+    src/core/ScanPathPlanner.h
+    src/core/ScanPathPlanner.cpp
+    src/core/ScanManager.h
+    src/core/ScanManager.cpp
     src/core/ScanWorker.h
     src/core/ScanWorker.cpp
 
     src/devices/motion/IMotionController.h
     src/devices/motion/MockMotionController.h
     src/devices/motion/MockMotionController.cpp
+    src/devices/motion/SerialMotionController.h
+    src/devices/motion/SerialMotionController.cpp
 
     src/devices/spectrum/ISpectrumAnalyzer.h
     src/devices/spectrum/MockSpectrumAnalyzer.h
@@ -63,6 +72,7 @@ target_link_libraries(NFSScanner
     PRIVATE
         Qt6::Core
         Qt6::Gui
+        Qt6::SerialPort
         Qt6::Widgets
 )
 

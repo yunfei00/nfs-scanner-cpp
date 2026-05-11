@@ -7,6 +7,10 @@ namespace NFSScanner::Core {
 struct ScanPoint
 {
     int index = 0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+
     int xIndex = 0;
     int yIndex = 0;
     double xMm = 0.0;

@@ -119,6 +119,9 @@ ScanPoint ScanWorker::createPoint(int index) const
 
     ScanPoint point;
     point.index = index;
+    point.x = x;
+    point.y = y;
+    point.z = config_.startZ;
     point.xIndex = xIndex;
     point.yIndex = yIndex;
     point.xMm = x;

@@ -1,8 +1,28 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当前阶段聚焦于可运行、可演示、可继续扩展的桌面主界面和 Mock 交互流程，暂不依赖真实串口、真实仪表或 OpenCV。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当前阶段聚焦于可运行、可演示、可继续扩展的桌面主界面、运动控制和扫描流程控制，暂不接入真实频谱仪、相机或 OpenCV。
 
 ## 当前版本
+
+### v0.3.0 扫描流程版本
+
+- 新增 ScanConfig / ScanPoint / ScanPathPlanner。
+- 支持扫描区域读取。
+- 支持蛇形路径规划。
+- 支持扫描状态机。
+- 支持开始、暂停、继续、停止。
+- 支持扫描进度、剩余点数、预计完成时间显示。
+- 当前阶段仅模拟扫描，不采集真实频谱，不保存数据。
+
+### v0.2.0 运动控制版本
+
+- 新增 Qt SerialPort 真实串口接入。
+- 支持刷新串口、打开/关闭串口。
+- 支持 `$H`、`?`、`$I`、`$`、`G1X..Y..Z..F..`。
+- 支持 GRBL-like MPos 状态解析。
+- 支持 X/Y/Z 点动与绝对坐标移动。
+- 支持坐标范围保护。
+- 保留模拟模式，方便无硬件演示。
 
 ### v0.1.1 UI 对齐版本
 
@@ -23,7 +43,7 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 - C++17 兼容编译器
   - Windows: MSVC 2022 或 MinGW-w64
   - Linux: GCC 10+ 或 Clang 12+
-- Qt 6，至少包含 Core、Gui、Widgets 模块
+- Qt 6，至少包含 Core、Gui、Widgets、SerialPort 模块
 - CMake 3.20+
 - 发布安装包需要 Inno Setup 6
 
@@ -43,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
 powershell -ExecutionPolicy Bypass -File scripts/run_windows_msvc.ps1
 ```
 
-默认会通过 `aqtinstall` 安装 Qt `6.8.3` 的 `win64_msvc2022_64` 包到 `C:/Qt`，构建脚本使用的 Qt 路径为 `C:/Qt/6.8.3/msvc2022_64`。如果 Qt 已经安装，安装脚本会复用现有目录。
+默认会通过 `aqtinstall` 安装 Qt `6.8.3` 的 `win64_msvc2022_64` 包和 `qtserialport` 模块到 `C:/Qt`，构建脚本使用的 Qt 路径为 `C:/Qt/6.8.3/msvc2022_64`。如果 Qt 已经安装，安装脚本会复用现有目录并补齐 Qt SerialPort。
 
 ## 本地构建
 
@@ -88,13 +108,13 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v1.0.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 主窗口标题为 `NFS Scanner v0.3.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
 - 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
-- 串口 mock：刷新 COM1/COM2/COM3，打开和关闭会更新状态并写入日志。
-- 运动控制 mock：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
-- 扫描区域：1 行 9 列表格配置起点、终点和 step。
+- 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
+- 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
+- 扫描区域：1 行 9 列表格配置起点、终点和 step，支持蛇形扫描和驻留时间设置。
 - 仪表区域：ZNA67 配置页和 N9020A / FSW 预留页，支持 Mock 设备发现。
-- Mock 扫描流程：每 100ms 输出一个扫描点日志，状态栏显示坐标、时间、剩余点数、预计完成和状态。
+- 扫描流程：ScanManager 使用 QTimer 模拟扫描推进，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
 - 结果区和热力图入口当前为占位交互，后续接入真实输出和热力图视图。
 
 ## Release 发布流程
@@ -119,15 +139,15 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.1.1.zip
-NFSScanner-Setup-v0.1.1.exe
+NFSScanner-Windows-Portable-v0.3.0.zip
+NFSScanner-Setup-v0.3.0.exe
 ```
 
 两个版本区别：
@@ -139,14 +159,14 @@ NFSScanner-Setup-v0.1.1.exe
 
 - 检查 `.github/workflows/release.yml` 是否存在。
 - 确认 `on.push.tags` 包含 `v*.*.*`。
-- 如果 tag 已经推送过，建议使用新 tag，例如 `v0.1.2`。
+- 如果 tag 已经推送过，建议使用新 tag，例如 `v0.3.1`。
 
 本地构建绿色版和安装包：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.1.1
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.1.1
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.3.0
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.3.0
 ```
 
 本地脚本输出目录：
@@ -157,8 +177,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Ve
 
 ## 后续开发路线
 
-1. 接入 Qt SerialPort 运动控制模块。
+1. v0.4.0 接入扫描数据模型和本地数据保存。
 2. 增加真实频谱仪适配器和设备 profile。
-3. 完善扫描任务队列、暂停恢复、断点续扫和异常恢复。
-4. 接入真实数据保存、热力图生成、LUT 和 Trace 管理。
+3. 完善扫描任务队列、断点续扫和异常恢复。
+4. 接入热力图生成、LUT 和 Trace 管理。
 5. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。
