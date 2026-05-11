@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("NFS Scanner"));
     QApplication::setApplicationName(QStringLiteral("NFSScanner"));
     QApplication::setApplicationDisplayName(QStringLiteral("NFS Scanner"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral("0.1.1"));
 
     qRegisterMetaType<NFSScanner::Core::ScanPoint>("NFSScanner::Core::ScanPoint");
 
@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
     }
 
     NFSScanner::UI::MainWindow window;
-    window.resize(1440, 900);
+    window.resize(1600, 900);
     window.show();
 
     return app.exec();

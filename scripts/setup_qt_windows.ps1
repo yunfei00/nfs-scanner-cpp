@@ -27,8 +27,12 @@ function Test-PythonModule {
         [string[]]$Arguments
     )
 
-    & $PythonExe -m $ModuleName @Arguments *> $null
-    return ($LASTEXITCODE -eq 0)
+    try {
+        & $PythonExe -m $ModuleName @Arguments *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
 }
 
 function Get-QtCompilerDirectory {

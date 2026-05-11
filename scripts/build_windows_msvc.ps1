@@ -61,10 +61,12 @@ Write-Host "Qt path:    $QtPath"
 Write-Host "CMake:      $cmakeExe"
 Write-Host "Generator:  $generator"
 
-$cmakeVersion = & $cmakeExe --version 2>&1 | Select-Object -First 1
-if ($LASTEXITCODE -ne 0) {
+$cmakeVersionOutput = & $cmakeExe --version 2>&1
+$cmakeVersionExitCode = $LASTEXITCODE
+if ($cmakeVersionExitCode -ne 0) {
     throw "Failed to get CMake version from: $cmakeExe"
 }
+$cmakeVersion = $cmakeVersionOutput | Select-Object -First 1
 Write-Host "CMake ver:  $cmakeVersion"
 
 if (-not (Test-Path $QtPath)) {
@@ -90,7 +92,7 @@ Write-Host "Configuring with $generator x64..."
 & $cmakeExe -S $repoRoot -B $buildDir `
     -G $generator `
     -A x64 `
-    -DCMAKE_PREFIX_PATH=$QtPath
+    "-DCMAKE_PREFIX_PATH=$QtPath"
 if ($LASTEXITCODE -ne 0) {
     throw "CMake configure failed. Please verify QtPath and install Visual Studio Build Tools 2022 with the 'Desktop development with C++' workload."
 }

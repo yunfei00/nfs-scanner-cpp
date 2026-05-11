@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -11,9 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
@@ -25,7 +23,6 @@ set(PROJECT_SOURCES
 
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
-    src/ui/MainWindow.ui
     src/ui/HeatmapView.h
     src/ui/HeatmapView.cpp
 

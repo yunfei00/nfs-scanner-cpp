@@ -2,32 +2,27 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <QVector>
 
-#include <memory>
-
-#include "core/ScanPoint.h"
-
-class QAction;
 class QComboBox;
-class QDoubleSpinBox;
+class QGroupBox;
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
-class QProgressBar;
 class QPushButton;
-class QSpinBox;
+class QStatusBar;
+class QTableWidget;
+class QTimer;
 class QWidget;
-
-namespace NFSScanner::App {
-class AppContext;
-}
-
-namespace NFSScanner::Core {
-struct ScanConfig;
-}
 
 namespace NFSScanner::UI {
 
-class HeatmapView;
+struct ScanPoint
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
 
 class MainWindow final : public QMainWindow
 {
@@ -37,57 +32,80 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
-private slots:
-    void handleStartScan();
-    void handleStopScan();
-    void handleScanProgress(int currentPoint, int totalPoints, const NFSScanner::Core::ScanPoint &point);
-    void handleScanFinished(bool completed);
-    void appendLog(const QString &message);
-
 private:
-    void setupMenus();
-    void setupCentralUi();
-    void setupConnections();
-    QWidget *createLeftPanel();
-    QWidget *createRightPanel();
-    NFSScanner::Core::ScanConfig buildScanConfig() const;
-    void setScanControlsEnabled(bool running);
-    void connectMockDevices();
-    void disconnectMockDevices();
+    void setupUi();
+    QGroupBox *createSerialGroup();
+    QGroupBox *createMotionControlGroup();
+    QGroupBox *createMotionCommandGroup();
+    QGroupBox *createStepConfigGroup();
+    QGroupBox *createTestInfoGroup();
+    QGroupBox *createActionGroup();
+    QGroupBox *createScanAreaGroup();
+    QGroupBox *createInstrumentGroup();
+    QGroupBox *createResultGroup();
+    QGroupBox *createLogGroup();
+    void setupStatusBar();
 
-    std::unique_ptr<NFSScanner::App::AppContext> appContext_;
+    void appendLog(const QString &text);
+    void updateStatusBar();
+    void setAppState(const QString &state);
 
-    QAction *startScanAction_ = nullptr;
-    QAction *stopScanAction_ = nullptr;
-    QAction *connectDevicesAction_ = nullptr;
-    QAction *disconnectDevicesAction_ = nullptr;
+    void refreshSerialPorts();
+    void openSerialPort();
+    void closeSerialPort();
+    void jogAxis(const QString &axis, double direction);
+    void resetPosition();
+    void queryPosition();
+    void executeAbsoluteMove();
+    void setCurrentPositionAsScanPoint(bool startPoint);
+    void syncStepInputsToTable();
+    void startScan();
+    void pauseScan();
+    void stopScan();
+    void advanceMockScan();
+    void finishMockScan();
+    void updateActionButtons();
+    QVector<ScanPoint> buildMockScanPoints() const;
+    double scanTableValue(int column, double fallback) const;
+    void setScanTableValue(int column, double value);
 
-    HeatmapView *heatmapView_ = nullptr;
+    double currentX_ = 0.0;
+    double currentY_ = 0.0;
+    double currentZ_ = 0.0;
+    double jogStep_ = 1.0;
+    QString appState_ = QStringLiteral("就绪");
+    QString remainingText_ = QStringLiteral("--");
+    QString estimatedFinishText_ = QStringLiteral("--");
+
+    QTimer *clockTimer_ = nullptr;
+    QTimer *mockScanTimer_ = nullptr;
+    int scanIndex_ = 0;
+    QVector<ScanPoint> mockScanPoints_;
+
     QPlainTextEdit *logEdit_ = nullptr;
-    QProgressBar *progressBar_ = nullptr;
+    QTableWidget *scanTable_ = nullptr;
+    QLabel *deviceDiscoveryLabel_ = nullptr;
+    QStatusBar *statusBar_ = nullptr;
+    QLabel *statusTextLabel_ = nullptr;
 
-    QPushButton *connectDevicesButton_ = nullptr;
-    QPushButton *disconnectDevicesButton_ = nullptr;
+    QComboBox *serialPortCombo_ = nullptr;
+    QComboBox *baudRateCombo_ = nullptr;
+    QPushButton *openSerialButton_ = nullptr;
+    QPushButton *closeSerialButton_ = nullptr;
+    QPushButton *refreshSerialButton_ = nullptr;
+
+    QLineEdit *absoluteXEdit_ = nullptr;
+    QLineEdit *absoluteYEdit_ = nullptr;
+    QLineEdit *absoluteZEdit_ = nullptr;
+    QLineEdit *feedEdit_ = nullptr;
+    QLineEdit *stepXEdit_ = nullptr;
+    QLineEdit *stepYEdit_ = nullptr;
+    QLineEdit *stepZEdit_ = nullptr;
+    QLineEdit *resultDirEdit_ = nullptr;
+
     QPushButton *startScanButton_ = nullptr;
+    QPushButton *pauseScanButton_ = nullptr;
     QPushButton *stopScanButton_ = nullptr;
-    QPushButton *moveButton_ = nullptr;
-
-    QLabel *motionStatusLabel_ = nullptr;
-    QLabel *spectrumStatusLabel_ = nullptr;
-    QLabel *motionPositionLabel_ = nullptr;
-
-    QSpinBox *columnsSpin_ = nullptr;
-    QSpinBox *rowsSpin_ = nullptr;
-    QDoubleSpinBox *stepSpin_ = nullptr;
-    QDoubleSpinBox *startFrequencySpin_ = nullptr;
-    QDoubleSpinBox *stopFrequencySpin_ = nullptr;
-    QDoubleSpinBox *motionXSpin_ = nullptr;
-    QDoubleSpinBox *motionYSpin_ = nullptr;
-    QDoubleSpinBox *motionZSpin_ = nullptr;
-    QDoubleSpinBox *centerFrequencySpin_ = nullptr;
-    QComboBox *traceCombo_ = nullptr;
-
-    bool scanRunning_ = false;
 };
 
 } // namespace NFSScanner::UI
