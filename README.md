@@ -4,6 +4,15 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 
 ## 当前版本
 
+### v0.6.0 热力图增强版本
+
+- 支持 LUT 选择。
+- 支持自动/手动 vmin/vmax。
+- 支持透明度控制。
+- 支持 Colorbar。
+- 支持主界面 HeatmapView 显示。
+- 支持热力图弹窗预览和 PNG 导出。
+
 ### v0.5.0 离线分析版本
 
 - 支持加载 `traces.csv`。
@@ -55,8 +64,8 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 
 - 使用 C++17 和 Qt 6 Widgets 重构近场扫描系统客户端。
 - 以 CMake 作为跨平台构建入口，支持 Windows 和 Linux。
-- 当前阶段提供工业测试软件风格的主界面、Mock 设备发现、Mock 运动控制和 Mock 扫描日志流程。
-- 后续逐步接入真实运动控制、频谱仪、数据分析、热力图生成和发布打包流程。
+- 当前阶段提供工业测试软件风格的主界面、Mock 设备发现、Mock 运动控制、扫描任务存储、离线分析和热力图增强显示。
+- 后续逐步接入真实频谱仪、数据采集线程、报告导出和版本签名。
 
 ## 依赖
 
@@ -128,7 +137,7 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v0.5.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 主窗口标题为 `NFS Scanner v0.6.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
 - 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
 - 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
 - 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
@@ -136,8 +145,8 @@ cmake --build build -j
 - 仪表区域：ZNA67 配置页和 N9020A / FSW 预留页，支持 Mock 设备发现。
 - 扫描流程：ScanManager 使用 QTimer 模拟扫描推进，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
 - 数据存储：扫描开始创建任务目录，持续写入 `points.csv` 和 `traces.csv`，完成后可打开结果目录。
-- 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并弹窗预览基础热力图。
-- 结果区和热力图入口当前为占位交互，后续接入真实输出和热力图视图。
+- 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并生成热力图。
+- 热力图增强：支持 LUT、Colorbar、自动/手动 vmin/vmax、透明度控制、主界面预览和弹窗导出 PNG。
 
 ## Release 发布流程
 
@@ -161,15 +170,15 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.5.0.zip
-NFSScanner-Setup-v0.5.0.exe
+NFSScanner-Windows-Portable-v0.6.0.zip
+NFSScanner-Setup-v0.6.0.exe
 ```
 
 两个版本区别：
@@ -187,8 +196,8 @@ NFSScanner-Setup-v0.5.0.exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.5.0
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.5.0
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.6.0
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.6.0
 ```
 
 本地脚本输出目录：
@@ -199,8 +208,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Ve
 
 ## 后续开发路线
 
-1. v0.6.0 增加 LUT、Colorbar、vmin/vmax 和主视图叠加。
-2. 增加真实频谱仪适配器和设备 profile。
-3. 完善扫描任务队列、断点续扫和异常恢复。
-4. 接入 LUT、Trace 管理和报告导出。
-5. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。
+1. v0.7.0 增加真实频谱仪框架、Generic SCPI 和 ZNA67 初版适配。
+2. 完善扫描任务队列、断点续扫和异常恢复。
+3. 增加 LUT 预设管理、Trace 管理和报告导出。
+4. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。

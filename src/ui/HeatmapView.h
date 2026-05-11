@@ -25,7 +25,9 @@ public slots:
     void setScanProgress(int currentPoint, int totalPoints);
     void setZoomFactor(double factor);
     void setHeatmapImage(const QImage &image);
+    void clearHeatmap();
     void clearHeatmapImage();
+    void setOpacityPercent(int percent);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -38,6 +40,7 @@ private:
     int currentPoint_ = 0;
     int totalPoints_ = 0;
     double zoomFactor_ = 1.0;
+    int opacityPercent_ = 85;
     QImage externalHeatmapImage_;
     QImage cachedMockHeatmap_;
     QSize cachedMockSize_;

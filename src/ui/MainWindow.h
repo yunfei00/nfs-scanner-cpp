@@ -8,12 +8,14 @@
 
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
+class QSlider;
 class QStatusBar;
 class QSpinBox;
 class QTableWidget;
@@ -29,6 +31,8 @@ class SerialMotionController;
 }
 
 namespace NFSScanner::UI {
+
+class HeatmapView;
 
 struct ScanPoint
 {
@@ -56,6 +60,7 @@ private:
     QGroupBox *createScanAreaGroup();
     QGroupBox *createInstrumentGroup();
     QGroupBox *createResultGroup();
+    QGroupBox *createHeatmapPreviewGroup();
     QGroupBox *createLogGroup();
     void setupStatusBar();
     void setupMotionController();
@@ -74,6 +79,8 @@ private:
     void loadFrequencyData();
     void populateFrequencyControls();
     void showHeatmap();
+    void updateColorbarDisplay();
+    void updateOpacityLabel(int percent);
     QString selectedDisplayMode() const;
     QString formatFrequency(double hz) const;
     QString resolveTraceCsvPath() const;
@@ -120,6 +127,7 @@ private:
     QStatusBar *statusBar_ = nullptr;
     QLabel *statusTextLabel_ = nullptr;
     QProgressBar *scanProgressBar_ = nullptr;
+    HeatmapView *heatmapView_ = nullptr;
 
     QComboBox *serialPortCombo_ = nullptr;
     QComboBox *baudRateCombo_ = nullptr;
@@ -147,7 +155,20 @@ private:
     QComboBox *traceCombo_ = nullptr;
     QComboBox *frequencyCombo_ = nullptr;
     QComboBox *displayModeCombo_ = nullptr;
+    QComboBox *lutCombo_ = nullptr;
+    QCheckBox *autoRangeCheck_ = nullptr;
+    QDoubleSpinBox *vminSpin_ = nullptr;
+    QDoubleSpinBox *vmaxSpin_ = nullptr;
+    QSlider *opacitySlider_ = nullptr;
+    QLabel *opacityLabel_ = nullptr;
+    QLabel *colorbarLabel_ = nullptr;
+    QLabel *colorbarMinLabel_ = nullptr;
+    QLabel *colorbarMaxLabel_ = nullptr;
     NFSScanner::Analysis::FrequencyData frequencyData_;
+    QImage currentHeatmapImage_;
+    QImage currentColorbarImage_;
+    double currentVmin_ = 0.0;
+    double currentVmax_ = 1.0;
 };
 
 } // namespace NFSScanner::UI

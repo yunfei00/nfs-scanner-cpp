@@ -88,6 +88,8 @@ QPushButton#stepButton:checked {
 
 QLineEdit,
 QComboBox,
+QDoubleSpinBox,
+QSpinBox,
 QPlainTextEdit {
     background: #ffffff;
     border: 1px solid #a8b2ba;
@@ -104,6 +106,11 @@ QLineEdit {
 
 QComboBox {
     padding: 1px 6px;
+}
+
+QDoubleSpinBox,
+QSpinBox {
+    padding: 1px 5px;
 }
 
 QComboBox::drop-down {
@@ -172,4 +179,28 @@ QStatusBar {
     background: #dfe5e9;
     color: #1f2933;
     border-top: 1px solid #9ea9b2;
+}
+
+QSlider::groove:horizontal {
+    height: 5px;
+    background: #c6cdd3;
+    border-radius: 2px;
+}
+
+QSlider::sub-page:horizontal {
+    background: #1f8f84;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    background: #ffffff;
+    border: 1px solid #71808c;
+    width: 14px;
+    margin: -5px 0;
+    border-radius: 2px;
+}
+
+QWidget#heatmapView {
+    background: #11161d;
+    border: 1px solid #75808a;
 }

@@ -1,42 +1,34 @@
 #include "analysis/HeatmapGenerator.h"
 
+#include "analysis/LutManager.h"
+
 #include <QColor>
 #include <QtMath>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace NFSScanner::Analysis {
 
 namespace {
 
-QColor missingColor()
+QRgb missingColor()
 {
-    return QColor(47, 52, 58);
-}
-
-QColor jetLikeColor(double value)
-{
-    const double t = std::clamp(value, 0.0, 1.0);
-    const double r = std::clamp(1.5 - std::abs(4.0 * t - 3.0), 0.0, 1.0);
-    const double g = std::clamp(1.5 - std::abs(4.0 * t - 2.0), 0.0, 1.0);
-    const double b = std::clamp(1.5 - std::abs(4.0 * t - 1.0), 0.0, 1.0);
-    return QColor::fromRgbF(r, g, b, 1.0);
+    return qRgba(47, 52, 58, 170);
 }
 
 } // namespace
 
-QImage HeatmapGenerator::generate(const FrequencyData &data,
-                                  const QString &traceId,
-                                  int freqIndex,
-                                  const QString &mode,
-                                  int width,
-                                  int height)
+HeatmapRenderResult HeatmapGenerator::generate(const FrequencyData &data, const HeatmapRenderOptions &options)
 {
     lastError_.clear();
+    HeatmapRenderResult result;
+
     if (!data.isValid()) {
         lastError_ = QStringLiteral("频谱数据无效，请先加载 traces.csv。");
-        return {};
+        result.error = lastError_;
+        return result;
     }
 
     const QVector<double> xs = data.xs();
@@ -44,12 +36,20 @@ QImage HeatmapGenerator::generate(const FrequencyData &data,
     const QVector<double> zs = data.zs();
     if (xs.isEmpty() || ys.isEmpty() || zs.isEmpty()) {
         lastError_ = QStringLiteral("坐标点不足，无法生成热力图。");
-        return {};
+        result.error = lastError_;
+        return result;
     }
 
-    if (freqIndex < 0 || freqIndex >= data.frequencyCount()) {
-        lastError_ = QStringLiteral("频率索引越界：%1").arg(freqIndex);
-        return {};
+    if (options.traceId.trimmed().isEmpty()) {
+        lastError_ = QStringLiteral("Trace 为空，无法生成热力图。");
+        result.error = lastError_;
+        return result;
+    }
+
+    if (options.freqIndex < 0 || options.freqIndex >= data.frequencyCount()) {
+        lastError_ = QStringLiteral("频率索引越界：%1").arg(options.freqIndex);
+        result.error = lastError_;
+        return result;
     }
 
     const double z = zs.first();
@@ -64,14 +64,14 @@ QImage HeatmapGenerator::generate(const FrequencyData &data,
 
     for (double y : ys) {
         for (double x : xs) {
-            const bool hasValue = data.hasValue(x, y, z, traceId);
+            const bool hasValue = data.hasValue(x, y, z, options.traceId);
             hasValues.push_back(hasValue);
             if (!hasValue) {
                 values.push_back(0.0);
                 continue;
             }
 
-            const double value = data.scalarValue(x, y, z, traceId, freqIndex, mode);
+            const double value = data.scalarValue(x, y, z, options.traceId, options.freqIndex, options.mode);
             values.push_back(value);
             vmin = std::min(vmin, value);
             vmax = std::max(vmax, value);
@@ -81,12 +81,25 @@ QImage HeatmapGenerator::generate(const FrequencyData &data,
 
     if (validCount == 0) {
         lastError_ = QStringLiteral("当前 Trace/Frequency 没有可显示的数据。");
-        return {};
+        result.error = lastError_;
+        return result;
     }
 
-    if (qAbs(vmax - vmin) < 1e-12) {
-        vmin -= 1.0;
-        vmax += 1.0;
+    if (!options.autoRange) {
+        vmin = options.vmin;
+        vmax = options.vmax;
+    }
+
+    if (!std::isfinite(vmin) || !std::isfinite(vmax)) {
+        vmin = 0.0;
+        vmax = 1.0;
+    }
+
+    if (vmin >= vmax || qAbs(vmax - vmin) < 1e-12) {
+        const double center = std::isfinite(vmin) ? vmin : 0.0;
+        const double spread = std::max(1.0, std::abs(center) * 0.1);
+        vmin = center - spread;
+        vmax = center + spread;
     }
 
     const int cols = xs.size();
@@ -99,18 +112,44 @@ QImage HeatmapGenerator::generate(const FrequencyData &data,
         for (int col = 0; col < cols; ++col) {
             const int index = row * cols + col;
             if (!hasValues.at(index)) {
-                line[col] = missingColor().rgba();
+                line[col] = missingColor();
                 continue;
             }
 
             const double normalized = (values.at(index) - vmin) / (vmax - vmin);
-            line[col] = jetLikeColor(normalized).rgba();
+            line[col] = LutManager::colorAt(options.lutName, normalized, options.alpha);
         }
     }
 
-    const int safeWidth = std::max(1, width);
-    const int safeHeight = std::max(1, height);
-    return grid.scaled(safeWidth, safeHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    const int safeWidth = std::max(1, options.width);
+    const int safeHeight = std::max(1, options.height);
+    result.image = grid.scaled(safeWidth, safeHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    result.colorbar = LutManager::createColorbar(options.lutName, 28, std::max(120, safeHeight / 2), options.alpha);
+    result.actualVmin = vmin;
+    result.actualVmax = vmax;
+    result.ok = !result.image.isNull();
+    if (!result.ok) {
+        result.error = QStringLiteral("热力图图像生成失败。");
+        lastError_ = result.error;
+    }
+    return result;
+}
+
+QImage HeatmapGenerator::generate(const FrequencyData &data,
+                                  const QString &traceId,
+                                  int freqIndex,
+                                  const QString &mode,
+                                  int width,
+                                  int height)
+{
+    HeatmapRenderOptions options;
+    options.traceId = traceId;
+    options.freqIndex = freqIndex;
+    options.mode = mode;
+    options.width = width;
+    options.height = height;
+    const HeatmapRenderResult result = generate(data, options);
+    return result.image;
 }
 
 QString HeatmapGenerator::lastError() const

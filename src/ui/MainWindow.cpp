@@ -3,9 +3,11 @@
 #include "app/AppVersion.h"
 #include "analysis/FrequencyCsvParser.h"
 #include "analysis/HeatmapGenerator.h"
+#include "analysis/LutManager.h"
 #include "core/ScanManager.h"
 #include "devices/motion/SerialMotionController.h"
 #include "ui/HeatmapDialog.h"
+#include "ui/HeatmapView.h"
 
 #include <QAbstractScrollArea>
 #include <QButtonGroup>
@@ -14,6 +16,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QDoubleValidator>
+#include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -27,9 +30,12 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QPixmap>
 #include <QScrollBar>
 #include <QSerialPortInfo>
+#include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -161,6 +167,7 @@ void MainWindow::setupUi()
     rightLayout->addWidget(createScanAreaGroup(), 0);
     rightLayout->addWidget(createInstrumentGroup(), 0);
     rightLayout->addWidget(createResultGroup(), 0);
+    rightLayout->addWidget(createHeatmapPreviewGroup(), 1);
     rightLayout->addWidget(createLogGroup(), 1);
 
     rootLayout->addWidget(leftPanel, 1);
@@ -637,6 +644,47 @@ QGroupBox *MainWindow::createResultGroup()
     displayModeCombo_->addItem(QStringLiteral("实部"), QStringLiteral("real"));
     displayModeCombo_->addItem(QStringLiteral("虚部"), QStringLiteral("imag"));
 
+    lutCombo_ = new QComboBox(group);
+    lutCombo_->addItems(Analysis::LutManager::availableLuts());
+    lutCombo_->setCurrentText(QStringLiteral("turbo"));
+
+    autoRangeCheck_ = new QCheckBox(QStringLiteral("自动范围"), group);
+    autoRangeCheck_->setChecked(true);
+
+    vminSpin_ = new QDoubleSpinBox(group);
+    vminSpin_->setRange(-1e12, 1e12);
+    vminSpin_->setDecimals(6);
+    vminSpin_->setValue(0.0);
+    vminSpin_->setEnabled(false);
+
+    vmaxSpin_ = new QDoubleSpinBox(group);
+    vmaxSpin_->setRange(-1e12, 1e12);
+    vmaxSpin_->setDecimals(6);
+    vmaxSpin_->setValue(1.0);
+    vmaxSpin_->setEnabled(false);
+
+    opacitySlider_ = new QSlider(Qt::Horizontal, group);
+    opacitySlider_->setRange(0, 100);
+    opacitySlider_->setValue(85);
+    opacityLabel_ = new QLabel(group);
+    updateOpacityLabel(opacitySlider_->value());
+
+    auto *colorbarPanel = new QWidget(group);
+    auto *colorbarLayout = new QVBoxLayout(colorbarPanel);
+    colorbarLayout->setContentsMargins(0, 0, 0, 0);
+    colorbarLayout->setSpacing(2);
+    colorbarMaxLabel_ = new QLabel(QStringLiteral("1"), colorbarPanel);
+    colorbarMaxLabel_->setAlignment(Qt::AlignCenter);
+    colorbarLabel_ = new QLabel(colorbarPanel);
+    colorbarLabel_->setAlignment(Qt::AlignCenter);
+    colorbarLabel_->setFixedSize(36, 88);
+    colorbarLabel_->setStyleSheet(QStringLiteral("background:#20252b;border:1px solid #75808a;"));
+    colorbarMinLabel_ = new QLabel(QStringLiteral("0"), colorbarPanel);
+    colorbarMinLabel_->setAlignment(Qt::AlignCenter);
+    colorbarLayout->addWidget(colorbarMaxLabel_);
+    colorbarLayout->addWidget(colorbarLabel_);
+    colorbarLayout->addWidget(colorbarMinLabel_);
+
     layout->addWidget(new QLabel(QStringLiteral("结果"), group), 0, 0);
     layout->addWidget(resultDirEdit_, 0, 1, 1, 5);
     layout->addWidget(viewButton, 0, 6);
@@ -648,6 +696,16 @@ QGroupBox *MainWindow::createResultGroup()
     layout->addWidget(new QLabel(QStringLiteral("显示模式"), group), 1, 4);
     layout->addWidget(displayModeCombo_, 1, 5);
     layout->addWidget(heatmapButton, 1, 6, 1, 2);
+    layout->addWidget(new QLabel(QStringLiteral("LUT"), group), 2, 0);
+    layout->addWidget(lutCombo_, 2, 1);
+    layout->addWidget(autoRangeCheck_, 2, 2);
+    layout->addWidget(new QLabel(QStringLiteral("vmin"), group), 2, 3);
+    layout->addWidget(vminSpin_, 2, 4);
+    layout->addWidget(new QLabel(QStringLiteral("vmax"), group), 2, 5);
+    layout->addWidget(vmaxSpin_, 2, 6);
+    layout->addWidget(colorbarPanel, 2, 7, 2, 1);
+    layout->addWidget(opacityLabel_, 3, 0);
+    layout->addWidget(opacitySlider_, 3, 1, 1, 6);
     layout->setColumnStretch(1, 1);
     layout->setColumnStretch(3, 1);
 
@@ -664,6 +722,40 @@ QGroupBox *MainWindow::createResultGroup()
     });
     connect(loadDataButton, &QPushButton::clicked, this, &MainWindow::loadFrequencyData);
     connect(heatmapButton, &QPushButton::clicked, this, &MainWindow::showHeatmap);
+    connect(autoRangeCheck_, &QCheckBox::toggled, this, [this](bool checked) {
+        if (vminSpin_) {
+            vminSpin_->setEnabled(!checked);
+        }
+        if (vmaxSpin_) {
+            vmaxSpin_->setEnabled(!checked);
+        }
+    });
+    connect(opacitySlider_, &QSlider::valueChanged, this, &MainWindow::updateOpacityLabel);
+    connect(lutCombo_, &QComboBox::currentTextChanged, this, [this]() {
+        if (currentColorbarImage_.isNull()) {
+            updateColorbarDisplay();
+        }
+    });
+    connect(opacitySlider_, &QSlider::valueChanged, this, [this]() {
+        if (currentColorbarImage_.isNull()) {
+            updateColorbarDisplay();
+        }
+    });
+
+    updateColorbarDisplay();
+
+    return group;
+}
+
+QGroupBox *MainWindow::createHeatmapPreviewGroup()
+{
+    auto *group = new QGroupBox(QStringLiteral("热力图预览"), this);
+    auto *layout = new QVBoxLayout(group);
+    layout->setContentsMargins(10, 12, 10, 10);
+
+    heatmapView_ = new HeatmapView(group);
+    heatmapView_->setOpacityPercent(opacitySlider_ ? opacitySlider_->value() : 85);
+    layout->addWidget(heatmapView_, 1);
 
     return group;
 }
@@ -731,7 +823,12 @@ void MainWindow::setupScanManager()
         updateActionButtons();
     });
     connect(scanManager_, &Core::ScanManager::logMessage, this, &MainWindow::appendLog);
-    connect(scanManager_, &Core::ScanManager::progressChanged, this, &MainWindow::updateScanProgress);
+    connect(scanManager_, &Core::ScanManager::progressChanged, this, [this](int current, int total) {
+        updateScanProgress(current, total);
+        if (heatmapView_ && currentHeatmapImage_.isNull()) {
+            heatmapView_->setScanProgress(current, total);
+        }
+    });
     connect(scanManager_, &Core::ScanManager::currentPointChanged, this, [this](int, int, double x, double y, double z) {
         currentX_ = x;
         currentY_ = y;
@@ -915,8 +1012,8 @@ void MainWindow::populateFrequencyControls()
     if (frequencyCombo_) {
         frequencyCombo_->clear();
         const QVector<double> freqs = frequencyData_.freqs();
-        for (int i = 0; i < freqs.size(); ++i) {
-            frequencyCombo_->addItem(formatFrequency(freqs.at(i)), i);
+        for (double freq : freqs) {
+            frequencyCombo_->addItem(formatFrequency(freq), freq);
         }
     }
 }
@@ -938,27 +1035,98 @@ void MainWindow::showHeatmap()
         return;
     }
 
-    int freqIndex = frequencyCombo_ ? frequencyCombo_->currentData().toInt() : -1;
-    if (freqIndex < 0 && frequencyCombo_) {
-        freqIndex = frequencyCombo_->currentIndex();
-    }
+    const int freqIndex = frequencyCombo_ ? frequencyCombo_->currentIndex() : -1;
 
     const QString mode = selectedDisplayMode();
     Analysis::HeatmapGenerator generator;
-    const QImage image = generator.generate(frequencyData_, traceId, freqIndex, mode, 720, 480);
-    if (image.isNull()) {
-        const QString message = generator.lastError();
+    Analysis::HeatmapRenderOptions options;
+    options.traceId = traceId;
+    options.freqIndex = freqIndex;
+    options.mode = mode;
+    options.lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
+    options.autoRange = !autoRangeCheck_ || autoRangeCheck_->isChecked();
+    options.vmin = vminSpin_ ? vminSpin_->value() : 0.0;
+    options.vmax = vmaxSpin_ ? vmaxSpin_->value() : 1.0;
+    options.alpha = opacitySlider_ ? std::clamp(opacitySlider_->value() * 255 / 100, 0, 255) : 220;
+    options.width = 900;
+    options.height = 600;
+
+    const Analysis::HeatmapRenderResult result = generator.generate(frequencyData_, options);
+    if (!result.ok || result.image.isNull()) {
+        const QString message = !result.error.isEmpty() ? result.error : generator.lastError();
         appendLog(QStringLiteral("生成热力图失败：%1").arg(message));
         QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
         return;
     }
 
+    currentHeatmapImage_ = result.image;
+    currentColorbarImage_ = result.colorbar;
+    currentVmin_ = result.actualVmin;
+    currentVmax_ = result.actualVmax;
+
+    if (options.autoRange) {
+        if (vminSpin_) {
+            const QSignalBlocker blocker(vminSpin_);
+            vminSpin_->setValue(currentVmin_);
+        }
+        if (vmaxSpin_) {
+            const QSignalBlocker blocker(vmaxSpin_);
+            vmaxSpin_->setValue(currentVmax_);
+        }
+    }
+
+    if (heatmapView_) {
+        heatmapView_->setOpacityPercent(opacitySlider_ ? opacitySlider_->value() : 85);
+        heatmapView_->setHeatmapImage(currentHeatmapImage_);
+    }
+    updateColorbarDisplay();
+
     const QString title = QStringLiteral("%1 | %2 | %3")
                               .arg(traceId,
                                    frequencyCombo_ ? frequencyCombo_->currentText() : QStringLiteral("Frequency"),
                                    displayModeCombo_ ? displayModeCombo_->currentText() : QStringLiteral("幅度"));
-    HeatmapDialog dialog(image, title, this);
+    appendLog(QStringLiteral("热力图已生成：LUT=%1，范围=%2 ~ %3，透明度=%4%")
+                  .arg(options.lutName,
+                       QString::number(currentVmin_, 'g', 6),
+                       QString::number(currentVmax_, 'g', 6),
+                       QString::number(opacitySlider_ ? opacitySlider_->value() : 85)));
+
+    HeatmapDialog dialog(currentHeatmapImage_, currentColorbarImage_, title, currentVmin_, currentVmax_, this);
     dialog.exec();
+}
+
+void MainWindow::updateColorbarDisplay()
+{
+    if (!colorbarLabel_) {
+        return;
+    }
+
+    const QString lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
+    const int alpha = opacitySlider_ ? std::clamp(opacitySlider_->value() * 255 / 100, 0, 255) : 220;
+    const QImage source = currentColorbarImage_.isNull()
+        ? Analysis::LutManager::createColorbar(lutName, 28, 120, alpha)
+        : currentColorbarImage_;
+
+    colorbarLabel_->setPixmap(QPixmap::fromImage(source)
+                                  .scaled(colorbarLabel_->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+
+    if (colorbarMinLabel_) {
+        colorbarMinLabel_->setText(QString::number(currentVmin_, 'g', 6));
+    }
+    if (colorbarMaxLabel_) {
+        colorbarMaxLabel_->setText(QString::number(currentVmax_, 'g', 6));
+    }
+}
+
+void MainWindow::updateOpacityLabel(int percent)
+{
+    const int safePercent = std::clamp(percent, 0, 100);
+    if (opacityLabel_) {
+        opacityLabel_->setText(QStringLiteral("透明度 %1%").arg(safePercent));
+    }
+    if (heatmapView_) {
+        heatmapView_->setOpacityPercent(safePercent);
+    }
 }
 
 QString MainWindow::selectedDisplayMode() const
@@ -975,15 +1143,15 @@ QString MainWindow::formatFrequency(double hz) const
 {
     const double absHz = std::abs(hz);
     if (absHz >= 1e9) {
-        return QStringLiteral("%1 GHz").arg(QString::number(hz / 1e9, 'g', 6));
+        return QStringLiteral("%1 GHz").arg(QString::number(hz / 1e9, 'f', 6));
     }
     if (absHz >= 1e6) {
-        return QStringLiteral("%1 MHz").arg(QString::number(hz / 1e6, 'g', 6));
+        return QStringLiteral("%1 MHz").arg(QString::number(hz / 1e6, 'f', 6));
     }
     if (absHz >= 1e3) {
-        return QStringLiteral("%1 kHz").arg(QString::number(hz / 1e3, 'g', 6));
+        return QStringLiteral("%1 kHz").arg(QString::number(hz / 1e3, 'f', 3));
     }
-    return QStringLiteral("%1 Hz").arg(QString::number(hz, 'g', 6));
+    return QStringLiteral("%1 Hz").arg(QString::number(hz, 'f', 0));
 }
 
 QString MainWindow::resolveTraceCsvPath() const

@@ -24,17 +24,17 @@ HeatmapView::HeatmapView(QWidget *parent)
 {
     setObjectName(QStringLiteral("heatmapView"));
     setAutoFillBackground(false);
-    setMinimumSize(520, 420);
+    setMinimumSize(320, 220);
 }
 
 QSize HeatmapView::minimumSizeHint() const
 {
-    return {520, 420};
+    return {320, 220};
 }
 
 QSize HeatmapView::sizeHint() const
 {
-    return {760, 560};
+    return {520, 300};
 }
 
 double HeatmapView::zoomFactor() const
@@ -61,12 +61,23 @@ void HeatmapView::setHeatmapImage(const QImage &image)
     update();
 }
 
+void HeatmapView::clearHeatmap()
+{
+    clearHeatmapImage();
+}
+
 void HeatmapView::clearHeatmapImage()
 {
     externalHeatmapImage_ = {};
     cachedMockHeatmap_ = {};
     cachedMockSize_ = {};
     cachedProgress_ = -1.0;
+    update();
+}
+
+void HeatmapView::setOpacityPercent(int percent)
+{
+    opacityPercent_ = std::clamp(percent, 0, 100);
     update();
 }
 
@@ -79,6 +90,43 @@ void HeatmapView::paintEvent(QPaintEvent *event)
     painter.fillRect(rect(), QColor(13, 16, 21));
 
     drawGrid(painter, QRectF(rect()));
+
+    if (!externalHeatmapImage_.isNull()) {
+        const QRectF bounds = QRectF(rect()).adjusted(28.0, 48.0, -28.0, -28.0);
+        const QSizeF imageSize = externalHeatmapImage_.size();
+        const double scale = std::min(bounds.width() / std::max(1.0, imageSize.width()),
+                                      bounds.height() / std::max(1.0, imageSize.height()));
+        const QSizeF targetSize(imageSize.width() * scale, imageSize.height() * scale);
+        const QRectF target(bounds.center().x() - targetSize.width() / 2.0,
+                            bounds.center().y() - targetSize.height() / 2.0,
+                            targetSize.width(),
+                            targetSize.height());
+
+        painter.save();
+        painter.setOpacity(static_cast<double>(opacityPercent_) / 100.0);
+        painter.drawImage(target, externalHeatmapImage_);
+        painter.restore();
+
+        painter.setPen(QPen(QColor(95, 116, 139), 1.4));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(target.adjusted(-1.0, -1.0, 1.0, 1.0), 6.0, 6.0);
+
+        painter.setPen(QColor(220, 228, 238));
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 10, QFont::DemiBold));
+        painter.drawText(rect().adjusted(18, 14, -18, -14),
+                         Qt::AlignLeft | Qt::AlignTop,
+                         QStringLiteral("Heatmap Preview"));
+
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 10));
+        painter.setPen(QColor(187, 199, 214));
+        painter.drawText(rect().adjusted(18, 14, -18, -14),
+                         Qt::AlignRight | Qt::AlignTop,
+                         QStringLiteral("size: %1x%2 | opacity: %3%")
+                             .arg(externalHeatmapImage_.width())
+                             .arg(externalHeatmapImage_.height())
+                             .arg(opacityPercent_));
+        return;
+    }
 
     const QRectF camera = cameraRect();
     QPainterPath cameraPath;

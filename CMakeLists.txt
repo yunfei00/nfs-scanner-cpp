@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -58,6 +58,8 @@ set(PROJECT_SOURCES
 
     src/analysis/HeatmapGenerator.h
     src/analysis/HeatmapGenerator.cpp
+    src/analysis/LutManager.h
+    src/analysis/LutManager.cpp
     src/analysis/FrequencyData.h
     src/analysis/FrequencyData.cpp
     src/analysis/FrequencyCsvParser.h
