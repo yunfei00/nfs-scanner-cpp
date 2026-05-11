@@ -25,6 +25,7 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
   - Linux: GCC 10+ 或 Clang 12+
 - Qt 6，至少包含 Core、Gui、Widgets 模块
 - CMake 3.20+
+- 发布安装包需要 Inno Setup 6
 
 ## Windows 一键配置 Qt + 构建
 
@@ -96,12 +97,12 @@ cmake --build build -j
 - Mock 扫描流程：每 100ms 输出一个扫描点日志，状态栏显示坐标、时间、剩余点数、预计完成和状态。
 - 结果区和热力图入口当前为占位交互，后续接入真实输出和热力图视图。
 
-## GitHub Actions 自动构建
+## Release 发布流程
 
 仓库配置了两个 Windows workflow：
 
 - `Windows Build`：push 到 `main` 或提交 pull request 时触发，只生成 Actions artifact，不创建 GitHub Release。
-- `Release`：push `v*.*.*` tag 或手动 workflow_dispatch 时触发，生成绿色免安装版 zip、Windows 安装版 exe，并上传到 GitHub Release。
+- `Release`：push `v*.*.*` tag 时触发正式发布；手动 `workflow_dispatch` 只生成测试 artifact，不创建正式 GitHub Release。
 
 日常构建：
 
@@ -109,32 +110,50 @@ cmake --build build -j
 git push origin main
 ```
 
-构建成功后，在 Actions 中下载：
+构建成功后，在 Actions 中下载 artifact：
 
 ```text
 NFSScanner-Windows-Release
 ```
 
-## 发布正式版本
-
-创建并推送版本 tag：
+正式发布：
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-`Release` workflow 会自动构建并在 GitHub Releases 页面生成两个文件：
+`Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.1.0.zip
-NFSScanner-Setup-v0.1.0.exe
+NFSScanner-Windows-Portable-v0.1.1.zip
+NFSScanner-Setup-v0.1.1.exe
 ```
 
 两个版本区别：
 
 - Portable：绿色版，解压即用，适合测试和现场快速验证。
 - Setup：安装版，像普通 Windows 应用一样安装到 Program Files，支持开始菜单和桌面快捷方式，适合正式交付客户。
+
+如果 tag 后没有触发：
+
+- 检查 `.github/workflows/release.yml` 是否存在。
+- 确认 `on.push.tags` 包含 `v*.*.*`。
+- 如果 tag 已经推送过，建议使用新 tag，例如 `v0.1.2`。
+
+本地构建绿色版和安装包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.1.1
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.1.1
+```
+
+本地脚本输出目录：
+
+- `dist/NFSScanner/`：绿色版目录，安装包也会从这里取文件。
+- `artifacts/NFSScanner-Windows-Portable-<Version>.zip`
+- `artifacts/NFSScanner-Setup-<Version>.exe`
 
 ## 后续开发路线
 

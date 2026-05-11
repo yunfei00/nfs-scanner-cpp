@@ -5,43 +5,68 @@ on:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example v0.1.1'
+        required: false
+        default: 'manual-build'
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build and Publish Release
+    name: Build Release Packages
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve version
+      - name: Resolve release variables
         id: version
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME) {
-            $version = $env:GITHUB_REF_NAME
+          if ($env:GITHUB_REF -like "refs/tags/*") {
+            $releaseVersion = $env:GITHUB_REF_NAME
+            Write-Host "Tag-triggered release detected: $releaseVersion"
           } else {
-            $version = "manual-build"
+            $inputVersion = "${{ github.event.inputs.version }}"
+            if ([string]::IsNullOrWhiteSpace($inputVersion)) {
+              $inputVersion = "manual-build"
+            }
+            $releaseVersion = $inputVersion
+            Write-Host "workflow_dispatch test build detected: $releaseVersion"
+            Write-Host "This run will upload Actions artifacts only and will not create a formal GitHub Release."
           }
 
-          $portableZip = "NFSScanner-Windows-Portable-$version.zip"
-          $installerExe = "NFSScanner-Setup-$version.exe"
-          $installerBaseName = "NFSScanner-Setup-$version"
+          if ($releaseVersion -eq "manual-build") {
+            $appVersion = "0.0.0"
+          } elseif ($releaseVersion.StartsWith("v")) {
+            $appVersion = $releaseVersion.Substring(1)
+          } else {
+            $appVersion = $releaseVersion
+          }
 
-          Write-Host "Resolved version: $version"
-          Write-Host "Portable zip:     $portableZip"
-          Write-Host "Installer exe:    $installerExe"
+          $portableZip = "NFSScanner-Windows-Portable-$releaseVersion.zip"
+          $setupExe = "NFSScanner-Setup-$releaseVersion.exe"
 
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "RELEASE_VERSION=$releaseVersion"
+          Write-Host "APP_VERSION=$appVersion"
+          Write-Host "PORTABLE_ZIP=$portableZip"
+          Write-Host "SETUP_EXE=$setupExe"
+
+          "RELEASE_VERSION=$releaseVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PORTABLE_ZIP=$portableZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SETUP_EXE=$setupExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          "release_version=$releaseVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "portable_zip=$portableZip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "installer_exe=$installerExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "installer_base_name=$installerBaseName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "setup_exe=$setupExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -116,13 +141,14 @@ jobs:
 
           "exe_path=$($selected.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Create dist directory
+      - name: Create dist and artifacts directories
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           $distDir = Join-Path "dist" "NFSScanner"
           New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
 
           $destination = Join-Path $distDir "NFSScanner.exe"
           Write-Host "Copying executable to $destination..."
@@ -227,7 +253,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $zipPath = Join-Path "dist" "${{ steps.version.outputs.portable_zip }}"
+          $zipPath = Join-Path "artifacts" $env:PORTABLE_ZIP
           if (Test-Path $zipPath) {
             Remove-Item -LiteralPath $zipPath -Force
           }
@@ -257,61 +283,71 @@ jobs:
           $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) {
             Write-Host "ISCC.exe was not found after Chocolatey install."
-            Write-Host "C:\Program Files (x86) directory candidates:"
-            Get-ChildItem "C:\Program Files (x86)" -Directory -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match "Inno" } |
+            Write-Host "Inspecting C:\Program Files (x86)\Inno Setup 6:"
+            Get-ChildItem "C:\Program Files (x86)\Inno Setup 6" -Force -ErrorAction SilentlyContinue |
               ForEach-Object { Write-Host $_.FullName }
 
-            Write-Host "C:\Program Files directory candidates:"
-            Get-ChildItem "C:\Program Files" -Directory -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match "Inno" } |
+            Write-Host "Inspecting C:\Program Files\Inno Setup 6:"
+            Get-ChildItem "C:\Program Files\Inno Setup 6" -Force -ErrorAction SilentlyContinue |
               ForEach-Object { Write-Host $_.FullName }
             exit 1
           }
 
           Write-Host "ISCC path: $iscc"
-          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build installer
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $iscc = $env:ISCC_PATH
+          $iscc = $env:ISCC
           if (-not $iscc -or -not (Test-Path $iscc)) {
-            throw "ISCC_PATH is missing or invalid: $iscc"
+            throw "ISCC environment variable is missing or invalid: $iscc"
           }
-
-          New-Item -ItemType Directory -Force -Path "dist_installer" | Out-Null
 
           Write-Host "Building installer with Inno Setup..."
           & $iscc `
-            "/DAppVersion=${{ steps.version.outputs.version }}" `
-            "/DOutputFile=${{ steps.version.outputs.installer_base_name }}" `
+            "/DAppVersion=$env:APP_VERSION" `
+            "/DOutputFile=NFSScanner-Setup-$env:RELEASE_VERSION" `
             "installer/nfs_scanner.iss"
 
-          $installerPath = Join-Path "dist_installer" "${{ steps.version.outputs.installer_exe }}"
+          $installerPath = Join-Path "artifacts" $env:SETUP_EXE
           if (-not (Test-Path $installerPath)) {
             Write-Host "Installer was not found: $installerPath"
-            Write-Host "dist_installer directory tree:"
-            Get-ChildItem -Path "dist_installer" -Recurse -ErrorAction SilentlyContinue |
+            Write-Host "artifacts directory tree:"
+            Get-ChildItem -Path "artifacts" -Recurse -ErrorAction SilentlyContinue |
               ForEach-Object { Write-Host $_.FullName }
             exit 1
           }
 
           Get-Item $installerPath | Format-List FullName,Length,LastWriteTime
 
+      - name: Upload release package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NFSScanner-Release-Packages
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Upload workflow_dispatch test artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: NFSScanner-Release-Test
+          path: artifacts/*
+          if-no-files-found: error
+
       - name: Upload GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          name: NFS Scanner ${{ steps.version.outputs.version }}
+          name: NFS Scanner ${{ github.ref_name }}
           body: |
-            - Portable zip: 绿色免安装版，解压后直接运行 NFSScanner.exe
-            - Setup exe: Windows 安装版，支持开始菜单和桌面快捷方式
+            Portable zip: 绿色免安装版，解压后直接运行 NFSScanner.exe。
+            Setup exe: Windows 安装版，支持开始菜单和桌面快捷方式。
           files: |
-            dist/${{ steps.version.outputs.portable_zip }}
-            dist_installer/${{ steps.version.outputs.installer_exe }}
+            artifacts/NFSScanner-Windows-Portable-*.zip
+            artifacts/NFSScanner-Setup-*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

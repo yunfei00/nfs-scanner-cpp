@@ -2,43 +2,41 @@
 #define MyAppExeName "NFSScanner.exe"
 
 #ifndef AppVersion
-#define AppVersion "manual-build"
+#define AppVersion "0.0.0"
 #endif
 
 #ifndef OutputFile
-#define OutputFile "NFSScanner-Setup-manual-build"
+#define OutputFile "NFSScanner-Setup"
 #endif
 
 [Setup]
-AppId={{8B89C52C-0552-4B6D-B15F-3347F2D5805B}
+AppId={{NFSScannerCpp-近场扫描系统}}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
-AppPublisher=NFS Scanner
 DefaultDirName={autopf}\NFS Scanner
 DefaultGroupName=NFS Scanner
-DisableProgramGroupPage=no
-OutputDir=..\dist_installer
+OutputDir=..\artifacts
 OutputBaseFilename={#OutputFile}
 Compression=lzma2
 SolidCompression=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-UninstallDisplayName={#MyAppName}
 WizardStyle=modern
+UninstallDisplayName=NFS Scanner
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
 Source: "..\dist\NFSScanner\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\NFS Scanner\NFS Scanner"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\NFS Scanner"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\NFS Scanner\NFS Scanner"; Filename: "{app}\NFSScanner.exe"
+Name: "{autodesktop}\NFS Scanner"; Filename: "{app}\NFSScanner.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\NFSScanner.exe"; Description: "Run NFS Scanner"; Flags: nowait postinstall skipifsilent
