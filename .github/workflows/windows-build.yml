@@ -1,0 +1,177 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  windows-build:
+    name: Build Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: 'true'
+          setup-python: 'true'
+
+      - name: Print build environment
+        shell: pwsh
+        run: |
+          Write-Host "Current directory:"
+          Get-Location
+
+          Write-Host "CMake version:"
+          cmake --version
+
+          Write-Host "Qt environment variables:"
+          Get-ChildItem Env: |
+            Where-Object { $_.Name -match '^(QT|Qt|QML|CMAKE_PREFIX_PATH)' } |
+            Sort-Object Name |
+            Format-Table -AutoSize
+
+          Write-Host "PATH entries:"
+          $env:PATH -split ';' | ForEach-Object { Write-Host $_ }
+
+          Write-Host "windeployqt in PATH:"
+          $winDeploy = Get-Command windeployqt -ErrorAction SilentlyContinue
+          if ($winDeploy) {
+            Write-Host $winDeploy.Source
+          } else {
+            Write-Host "windeployqt was not found in PATH at environment print step."
+          }
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Collect executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Write-Host "Searching for NFSScanner.exe under build..."
+          $candidates = Get-ChildItem -Path build -Filter "NFSScanner.exe" -Recurse -File |
+            Sort-Object FullName
+
+          if (-not $candidates -or $candidates.Count -eq 0) {
+            Write-Host "NFSScanner.exe was not found. Build directory tree:"
+            Get-ChildItem -Path build -Recurse | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+
+          Write-Host "Executable candidates:"
+          $candidates | ForEach-Object { Write-Host $_.FullName }
+
+          $selected = $candidates | Select-Object -First 1
+          Write-Host "Selected executable:"
+          Write-Host $selected.FullName
+
+          $distDir = Join-Path "dist" "NFSScanner"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          Copy-Item -LiteralPath $selected.FullName -Destination (Join-Path $distDir "NFSScanner.exe") -Force
+
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Resolve-WinDeployQt {
+            $qtEnvNames = @("QT_ROOT_DIR", "Qt6_DIR", "Qt5_DIR", "QTDIR")
+
+            foreach ($name in $qtEnvNames) {
+              $value = [Environment]::GetEnvironmentVariable($name)
+              if (-not $value) {
+                continue
+              }
+
+              $candidateRoots = @($value)
+              if ($name -in @("Qt6_DIR", "Qt5_DIR")) {
+                $candidateRoots += (Split-Path (Split-Path (Split-Path $value -Parent) -Parent) -Parent)
+              }
+
+              foreach ($root in $candidateRoots) {
+                $candidate = Join-Path $root "bin/windeployqt.exe"
+                if (Test-Path $candidate) {
+                  return (Resolve-Path $candidate).Path
+                }
+              }
+            }
+
+            $pathCommand = Get-Command windeployqt -ErrorAction SilentlyContinue
+            if ($pathCommand) {
+              return $pathCommand.Source
+            }
+
+            return $null
+          }
+
+          $exePath = Join-Path "dist/NFSScanner" "NFSScanner.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "Executable not found before windeployqt: $exePath"
+          }
+
+          Write-Host "Resolving windeployqt..."
+          $winDeploy = Resolve-WinDeployQt
+          if (-not $winDeploy) {
+            Write-Host "windeployqt was not found. PATH:"
+            $env:PATH -split ';' | ForEach-Object { Write-Host $_ }
+            exit 1
+          }
+
+          Write-Host "windeployqt path:"
+          Write-Host $winDeploy
+
+          & $winDeploy $exePath --release --compiler-runtime
+
+      - name: Copy project assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $distDir = Join-Path "dist" "NFSScanner"
+
+          if (Test-Path "resources") {
+            Copy-Item -Path "resources" -Destination (Join-Path $distDir "resources") -Recurse -Force
+          }
+
+          if (Test-Path "docs") {
+            Copy-Item -Path "docs" -Destination (Join-Path $distDir "docs") -Recurse -Force
+          }
+
+          if (Test-Path "README.md") {
+            Copy-Item -Path "README.md" -Destination (Join-Path $distDir "README.md") -Force
+          }
+
+          Write-Host "dist/NFSScanner directory contents:"
+          Get-ChildItem -Path $distDir -Recurse | ForEach-Object { Write-Host $_.FullName }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NFSScanner-Windows-Release
+          path: dist/NFSScanner
