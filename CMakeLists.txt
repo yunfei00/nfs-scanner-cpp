@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.3.0
+    VERSION 0.5.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -24,6 +24,8 @@ set(PROJECT_SOURCES
 
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
+    src/ui/HeatmapDialog.h
+    src/ui/HeatmapDialog.cpp
     src/ui/HeatmapView.h
     src/ui/HeatmapView.cpp
 
@@ -31,6 +33,8 @@ set(PROJECT_SOURCES
     src/core/ScanConfig.cpp
     src/core/ScanPoint.h
     src/core/ScanPoint.cpp
+    src/core/ScanResult.h
+    src/core/ScanResult.cpp
     src/core/ScanPathPlanner.h
     src/core/ScanPathPlanner.cpp
     src/core/ScanManager.h
@@ -45,11 +49,19 @@ set(PROJECT_SOURCES
     src/devices/motion/SerialMotionController.cpp
 
     src/devices/spectrum/ISpectrumAnalyzer.h
+    src/devices/spectrum/SpectrumTrace.h
     src/devices/spectrum/MockSpectrumAnalyzer.h
     src/devices/spectrum/MockSpectrumAnalyzer.cpp
 
+    src/storage/TaskStorage.h
+    src/storage/TaskStorage.cpp
+
     src/analysis/HeatmapGenerator.h
     src/analysis/HeatmapGenerator.cpp
+    src/analysis/FrequencyData.h
+    src/analysis/FrequencyData.cpp
+    src/analysis/FrequencyCsvParser.h
+    src/analysis/FrequencyCsvParser.cpp
 
     src/infra/Logger.h
     src/infra/Logger.cpp

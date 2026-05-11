@@ -2,6 +2,8 @@
 
 #include "core/ScanConfig.h"
 #include "core/ScanPoint.h"
+#include "devices/spectrum/MockSpectrumAnalyzer.h"
+#include "storage/TaskStorage.h"
 
 #include <QObject>
 #include <QString>
@@ -46,7 +48,8 @@ signals:
     void progressChanged(int current, int total);
     void currentPointChanged(int index, int total, double x, double y, double z);
     void estimatedChanged(int remainingCount, int estimatedSeconds);
-    void scanFinished();
+    void taskDirChanged(const QString &taskDir);
+    void scanFinished(const QString &taskDir);
     void scanError(const QString &message);
 
 private:
@@ -55,6 +58,8 @@ private:
 
     ScanConfig config_;
     QVector<ScanPoint> points_;
+    NFSScanner::Storage::TaskStorage storage_;
+    NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer mockSpectrum_;
     QTimer timer_;
     ScanState state_ = ScanState::Idle;
     int currentIndex_ = 0;

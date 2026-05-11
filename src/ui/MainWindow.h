@@ -1,5 +1,7 @@
 #pragma once
 
+#include "analysis/FrequencyData.h"
+
 #include <QMainWindow>
 #include <QString>
 #include <QVector>
@@ -69,6 +71,12 @@ private:
     bool validateMotionTarget(double x, double y, double z);
     void updateSerialButtons(bool connected);
     void updateScanProgress(int current, int total);
+    void loadFrequencyData();
+    void populateFrequencyControls();
+    void showHeatmap();
+    QString selectedDisplayMode() const;
+    QString formatFrequency(double hz) const;
+    QString resolveTraceCsvPath() const;
 
     void refreshSerialPorts();
     void openSerialPort();
@@ -136,6 +144,10 @@ private:
     QPushButton *stopScanButton_ = nullptr;
     QCheckBox *snakeModeCheck_ = nullptr;
     QSpinBox *dwellTimeSpinBox_ = nullptr;
+    QComboBox *traceCombo_ = nullptr;
+    QComboBox *frequencyCombo_ = nullptr;
+    QComboBox *displayModeCombo_ = nullptr;
+    NFSScanner::Analysis::FrequencyData frequencyData_;
 };
 
 } // namespace NFSScanner::UI

@@ -1,14 +1,20 @@
 #include "ui/MainWindow.h"
 
 #include "app/AppVersion.h"
+#include "analysis/FrequencyCsvParser.h"
+#include "analysis/HeatmapGenerator.h"
 #include "core/ScanManager.h"
 #include "devices/motion/SerialMotionController.h"
+#include "ui/HeatmapDialog.h"
 
 #include <QAbstractScrollArea>
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
+#include <QDir>
 #include <QDoubleValidator>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -31,6 +37,7 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QTime>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -611,25 +618,52 @@ QGroupBox *MainWindow::createInstrumentGroup()
 QGroupBox *MainWindow::createResultGroup()
 {
     auto *group = new QGroupBox(QStringLiteral("结果区域"), this);
-    auto *layout = new QHBoxLayout(group);
+    auto *layout = new QGridLayout(group);
     layout->setContentsMargins(10, 12, 10, 10);
-    layout->setSpacing(8);
+    layout->setHorizontalSpacing(8);
+    layout->setVerticalSpacing(6);
 
-    resultDirEdit_ = new QLineEdit(QStringLiteral("output"), group);
+    resultDirEdit_ = new QLineEdit(QStringLiteral("data/scans"), group);
     auto *viewButton = new QPushButton(QStringLiteral("查看"), group);
+    auto *loadDataButton = new QPushButton(QStringLiteral("加载数据"), group);
     auto *heatmapButton = new QPushButton(QStringLiteral("显示热力图"), group);
 
-    layout->addWidget(new QLabel(QStringLiteral("结果"), group));
-    layout->addWidget(resultDirEdit_, 1);
-    layout->addWidget(viewButton);
-    layout->addWidget(heatmapButton);
+    traceCombo_ = new QComboBox(group);
+    frequencyCombo_ = new QComboBox(group);
+    displayModeCombo_ = new QComboBox(group);
+    displayModeCombo_->addItem(QStringLiteral("幅度"), QStringLiteral("magnitude"));
+    displayModeCombo_->addItem(QStringLiteral("幅度dB"), QStringLiteral("db"));
+    displayModeCombo_->addItem(QStringLiteral("相位"), QStringLiteral("phase"));
+    displayModeCombo_->addItem(QStringLiteral("实部"), QStringLiteral("real"));
+    displayModeCombo_->addItem(QStringLiteral("虚部"), QStringLiteral("imag"));
+
+    layout->addWidget(new QLabel(QStringLiteral("结果"), group), 0, 0);
+    layout->addWidget(resultDirEdit_, 0, 1, 1, 5);
+    layout->addWidget(viewButton, 0, 6);
+    layout->addWidget(loadDataButton, 0, 7);
+    layout->addWidget(new QLabel(QStringLiteral("Trace"), group), 1, 0);
+    layout->addWidget(traceCombo_, 1, 1);
+    layout->addWidget(new QLabel(QStringLiteral("Frequency"), group), 1, 2);
+    layout->addWidget(frequencyCombo_, 1, 3);
+    layout->addWidget(new QLabel(QStringLiteral("显示模式"), group), 1, 4);
+    layout->addWidget(displayModeCombo_, 1, 5);
+    layout->addWidget(heatmapButton, 1, 6, 1, 2);
+    layout->setColumnStretch(1, 1);
+    layout->setColumnStretch(3, 1);
 
     connect(viewButton, &QPushButton::clicked, this, [this]() {
-        appendLog(QStringLiteral("查看结果目录：%1").arg(resultDirEdit_->text()));
+        const QString path = resultDirEdit_ ? resultDirEdit_->text().trimmed() : QString();
+        const QFileInfo info(path);
+        if (path.isEmpty() || !info.exists() || !info.isDir()) {
+            appendLog(QStringLiteral("结果目录不存在：%1").arg(path.isEmpty() ? QStringLiteral("(空)") : path));
+            return;
+        }
+
+        appendLog(QStringLiteral("打开结果目录：%1").arg(info.absoluteFilePath()));
+        QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
     });
-    connect(heatmapButton, &QPushButton::clicked, this, [this]() {
-        appendLog(QStringLiteral("显示热力图功能待接入。"));
-    });
+    connect(loadDataButton, &QPushButton::clicked, this, &MainWindow::loadFrequencyData);
+    connect(heatmapButton, &QPushButton::clicked, this, &MainWindow::showHeatmap);
 
     return group;
 }
@@ -709,10 +743,20 @@ void MainWindow::setupScanManager()
         estimatedFinishText_ = QStringLiteral("%1s").arg(estimatedSeconds);
         updateStatusBar();
     });
-    connect(scanManager_, &Core::ScanManager::scanFinished, this, [this]() {
+    connect(scanManager_, &Core::ScanManager::taskDirChanged, this, [this](const QString &taskDir) {
+        if (resultDirEdit_) {
+            resultDirEdit_->setText(taskDir);
+        }
+    });
+    connect(scanManager_, &Core::ScanManager::scanFinished, this, [this](const QString &taskDir) {
         remainingText_ = QStringLiteral("0");
         estimatedFinishText_ = QStringLiteral("--");
-        appendLog(QStringLiteral("扫描完成。"));
+        if (resultDirEdit_) {
+            resultDirEdit_->setText(taskDir);
+        }
+        appendLog(QStringLiteral("扫描完成，数据已保存：%1").arg(taskDir));
+        loadFrequencyData();
+        appendLog(QStringLiteral("扫描完成，可点击“显示热力图”。"));
         updateActionButtons();
         updateStatusBar();
     });
@@ -829,6 +873,139 @@ void MainWindow::updateScanProgress(int current, int total)
     scanProgressBar_->setRange(0, std::max(1, total));
     scanProgressBar_->setValue(std::clamp(current, 0, std::max(1, total)));
     scanProgressBar_->setFormat(QStringLiteral("%1 / %2").arg(current).arg(total));
+}
+
+void MainWindow::loadFrequencyData()
+{
+    const QString tracePath = resolveTraceCsvPath();
+    if (tracePath.isEmpty()) {
+        const QString message = QStringLiteral("traces.csv 不存在，请选择任务目录或 CSV 文件。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("加载失败"), message);
+        return;
+    }
+
+    Analysis::FrequencyCsvParser parser;
+    Analysis::FrequencyData loadedData;
+    if (!parser.loadFile(tracePath, &loadedData)) {
+        const QString message = parser.lastError();
+        appendLog(QStringLiteral("加载数据失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("加载失败"), message);
+        return;
+    }
+
+    frequencyData_ = loadedData;
+    populateFrequencyControls();
+    appendLog(QStringLiteral("已加载数据：trace数量=%1，频率点=%2，坐标点=%3")
+                  .arg(frequencyData_.traceIds().size())
+                  .arg(frequencyData_.frequencyCount())
+                  .arg(frequencyData_.pointCount()));
+    if (!parser.lastError().isEmpty()) {
+        appendLog(parser.lastError());
+    }
+}
+
+void MainWindow::populateFrequencyControls()
+{
+    if (traceCombo_) {
+        traceCombo_->clear();
+        traceCombo_->addItems(frequencyData_.traceIds());
+    }
+
+    if (frequencyCombo_) {
+        frequencyCombo_->clear();
+        const QVector<double> freqs = frequencyData_.freqs();
+        for (int i = 0; i < freqs.size(); ++i) {
+            frequencyCombo_->addItem(formatFrequency(freqs.at(i)), i);
+        }
+    }
+}
+
+void MainWindow::showHeatmap()
+{
+    if (!frequencyData_.isValid()) {
+        const QString message = QStringLiteral("请先加载 traces.csv 数据。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
+        return;
+    }
+
+    const QString traceId = traceCombo_ ? traceCombo_->currentText() : QString();
+    if (traceId.isEmpty()) {
+        const QString message = QStringLiteral("未选择 Trace。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
+        return;
+    }
+
+    int freqIndex = frequencyCombo_ ? frequencyCombo_->currentData().toInt() : -1;
+    if (freqIndex < 0 && frequencyCombo_) {
+        freqIndex = frequencyCombo_->currentIndex();
+    }
+
+    const QString mode = selectedDisplayMode();
+    Analysis::HeatmapGenerator generator;
+    const QImage image = generator.generate(frequencyData_, traceId, freqIndex, mode, 720, 480);
+    if (image.isNull()) {
+        const QString message = generator.lastError();
+        appendLog(QStringLiteral("生成热力图失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
+        return;
+    }
+
+    const QString title = QStringLiteral("%1 | %2 | %3")
+                              .arg(traceId,
+                                   frequencyCombo_ ? frequencyCombo_->currentText() : QStringLiteral("Frequency"),
+                                   displayModeCombo_ ? displayModeCombo_->currentText() : QStringLiteral("幅度"));
+    HeatmapDialog dialog(image, title, this);
+    dialog.exec();
+}
+
+QString MainWindow::selectedDisplayMode() const
+{
+    if (!displayModeCombo_) {
+        return QStringLiteral("magnitude");
+    }
+
+    const QString mode = displayModeCombo_->currentData().toString();
+    return mode.isEmpty() ? QStringLiteral("magnitude") : mode;
+}
+
+QString MainWindow::formatFrequency(double hz) const
+{
+    const double absHz = std::abs(hz);
+    if (absHz >= 1e9) {
+        return QStringLiteral("%1 GHz").arg(QString::number(hz / 1e9, 'g', 6));
+    }
+    if (absHz >= 1e6) {
+        return QStringLiteral("%1 MHz").arg(QString::number(hz / 1e6, 'g', 6));
+    }
+    if (absHz >= 1e3) {
+        return QStringLiteral("%1 kHz").arg(QString::number(hz / 1e3, 'g', 6));
+    }
+    return QStringLiteral("%1 Hz").arg(QString::number(hz, 'g', 6));
+}
+
+QString MainWindow::resolveTraceCsvPath() const
+{
+    const QString path = resultDirEdit_ ? resultDirEdit_->text().trimmed() : QString();
+    if (path.isEmpty()) {
+        return {};
+    }
+
+    const QFileInfo info(path);
+    if (info.exists() && info.isFile() && info.fileName().compare(QStringLiteral("traces.csv"), Qt::CaseInsensitive) == 0) {
+        return info.absoluteFilePath();
+    }
+
+    if (info.exists() && info.isDir()) {
+        const QFileInfo csvInfo(QDir(info.absoluteFilePath()).filePath(QStringLiteral("traces.csv")));
+        if (csvInfo.exists() && csvInfo.isFile()) {
+            return csvInfo.absoluteFilePath();
+        }
+    }
+
+    return {};
 }
 
 void MainWindow::refreshSerialPorts()
@@ -1087,7 +1264,9 @@ void MainWindow::startScan()
     config.snakeMode = !snakeModeCheck_ || snakeModeCheck_->isChecked();
     config.projectName = projectNameEdit_ ? projectNameEdit_->text().trimmed() : QString();
     config.testName = testNameEdit_ ? testNameEdit_->text().trimmed() : QString();
-    config.outputDir = resultDirEdit_ ? resultDirEdit_->text().trimmed() : QStringLiteral("output");
+    config.outputDir = resultDirEdit_ && !resultDirEdit_->text().trimmed().isEmpty()
+        ? resultDirEdit_->text().trimmed()
+        : QStringLiteral("data/scans");
 
     remainingText_ = QStringLiteral("--");
     estimatedFinishText_ = QStringLiteral("--");

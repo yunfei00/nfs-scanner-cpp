@@ -4,6 +4,26 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 
 ## 当前版本
 
+### v0.5.0 离线分析版本
+
+- 支持加载 `traces.csv`。
+- 支持自动发现 Trace。
+- 支持频率点选择。
+- 支持幅度、幅度dB、相位、实部、虚部显示模式。
+- 支持生成基础热力图。
+- 支持导出热力图 PNG。
+
+### v0.4.0 数据存储版本
+
+- 扫描开始时创建任务目录。
+- 保存 `meta.json`。
+- 保存 `scan_config.json`。
+- 保存 `points.csv`。
+- 保存 `traces.csv`。
+- 使用 MockSpectrumAnalyzer 生成模拟频谱数据。
+- `traces.csv` 兼容旧 Python 频率文件格式。
+- 扫描完成后可以点击查看打开任务目录。
+
 ### v0.3.0 扫描流程版本
 
 - 新增 ScanConfig / ScanPoint / ScanPathPlanner。
@@ -108,13 +128,15 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v0.3.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 主窗口标题为 `NFS Scanner v0.5.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
 - 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
 - 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
 - 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
 - 扫描区域：1 行 9 列表格配置起点、终点和 step，支持蛇形扫描和驻留时间设置。
 - 仪表区域：ZNA67 配置页和 N9020A / FSW 预留页，支持 Mock 设备发现。
 - 扫描流程：ScanManager 使用 QTimer 模拟扫描推进，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
+- 数据存储：扫描开始创建任务目录，持续写入 `points.csv` 和 `traces.csv`，完成后可打开结果目录。
+- 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并弹窗预览基础热力图。
 - 结果区和热力图入口当前为占位交互，后续接入真实输出和热力图视图。
 
 ## Release 发布流程
@@ -139,15 +161,15 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.3.0.zip
-NFSScanner-Setup-v0.3.0.exe
+NFSScanner-Windows-Portable-v0.5.0.zip
+NFSScanner-Setup-v0.5.0.exe
 ```
 
 两个版本区别：
@@ -165,8 +187,8 @@ NFSScanner-Setup-v0.3.0.exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.3.0
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.3.0
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.5.0
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.5.0
 ```
 
 本地脚本输出目录：
@@ -177,8 +199,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Ve
 
 ## 后续开发路线
 
-1. v0.4.0 接入扫描数据模型和本地数据保存。
+1. v0.6.0 增加 LUT、Colorbar、vmin/vmax 和主视图叠加。
 2. 增加真实频谱仪适配器和设备 profile。
 3. 完善扫描任务队列、断点续扫和异常恢复。
-4. 接入热力图生成、LUT 和 Trace 管理。
+4. 接入 LUT、Trace 管理和报告导出。
 5. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。

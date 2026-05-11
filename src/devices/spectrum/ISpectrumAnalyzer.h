@@ -1,5 +1,7 @@
 #pragma once
 
+#include "devices/spectrum/SpectrumTrace.h"
+
 #include <QObject>
 #include <QString>
 
@@ -24,6 +26,8 @@ public:
     virtual void setCenterFrequency(double mhz) = 0;
     virtual double centerFrequencyMhz() const = 0;
     virtual double readPowerDbm() = 0;
+    virtual SpectrumTrace singleSweep(int pointIndex, double x, double y, double z) = 0;
+    virtual QString lastError() const = 0;
 
 signals:
     void connectionChanged(bool connected);

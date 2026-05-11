@@ -18,10 +18,13 @@ public:
     void setCenterFrequency(double mhz) override;
     double centerFrequencyMhz() const override;
     double readPowerDbm() override;
+    SpectrumTrace singleSweep(int pointIndex, double x, double y, double z) override;
+    QString lastError() const override;
 
 private:
-    bool connected_ = false;
+    bool connected_ = true;
     double centerFrequencyMhz_ = 1000.0;
+    QString lastError_;
 };
 
 } // namespace NFSScanner::Devices::Spectrum
