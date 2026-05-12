@@ -535,6 +535,15 @@ QGroupBox *MainWindow::createInstrumentGroup()
     queryIdnButton_ = new QPushButton(QStringLiteral("查询 IDN"), group);
     applyAnalyzerConfigButton_ = new QPushButton(QStringLiteral("应用仪表配置"), group);
     singleSweepButton_ = new QPushButton(QStringLiteral("单次扫描"), group);
+    acquisitionTimeoutSpin_ = new QSpinBox(group);
+    acquisitionTimeoutSpin_->setRange(1000, 60000);
+    acquisitionTimeoutSpin_->setValue(10000);
+    acquisitionTimeoutSpin_->setSuffix(QStringLiteral(" ms"));
+    acquisitionRetrySpin_ = new QSpinBox(group);
+    acquisitionRetrySpin_->setRange(0, 5);
+    acquisitionRetrySpin_->setValue(1);
+    stopOnErrorCheck_ = new QCheckBox(QStringLiteral("失败停止"), group);
+    stopOnErrorCheck_->setChecked(true);
 
     connectGrid->addWidget(new QLabel(QStringLiteral("频谱仪"), group), 0, 0);
     connectGrid->addWidget(analyzerTypeCombo_, 0, 1);
@@ -547,6 +556,11 @@ QGroupBox *MainWindow::createInstrumentGroup()
     connectGrid->addWidget(queryIdnButton_, 1, 0, 1, 2);
     connectGrid->addWidget(applyAnalyzerConfigButton_, 1, 2, 1, 3);
     connectGrid->addWidget(singleSweepButton_, 1, 5, 1, 3);
+    connectGrid->addWidget(new QLabel(QStringLiteral("超时"), group), 2, 0);
+    connectGrid->addWidget(acquisitionTimeoutSpin_, 2, 1);
+    connectGrid->addWidget(new QLabel(QStringLiteral("重试次数"), group), 2, 2);
+    connectGrid->addWidget(acquisitionRetrySpin_, 2, 3);
+    connectGrid->addWidget(stopOnErrorCheck_, 2, 4, 1, 2);
     connectGrid->setColumnStretch(1, 1);
     connectGrid->setColumnStretch(3, 1);
     layout->addLayout(connectGrid);
@@ -1312,6 +1326,7 @@ void MainWindow::runSingleSpectrumSweep()
         return;
     }
 
+    appendLog(QStringLiteral("正在采集单次频谱，请稍候。"));
     lastSpectrumTrace_ = currentAnalyzer_->singleSweep(0, currentX_, currentY_, currentZ_);
     if (lastSpectrumTrace_.freqs.isEmpty()
         || lastSpectrumTrace_.values.isEmpty()
@@ -1702,6 +1717,16 @@ void MainWindow::startScan()
     currentSpectrumConfig_ = readSpectrumConfig();
     scanManager_->setSpectrumConfig(currentSpectrumConfig_);
     scanManager_->setSpectrumAnalyzer(currentAnalyzer_ && currentAnalyzer_->isConnected() ? currentAnalyzer_ : nullptr);
+    Core::ScanAcquisitionOptions acquisitionOptions;
+    acquisitionOptions.timeoutMs = acquisitionTimeoutSpin_ ? acquisitionTimeoutSpin_->value() : 10000;
+    acquisitionOptions.retryCount = acquisitionRetrySpin_ ? acquisitionRetrySpin_->value() : 1;
+    acquisitionOptions.stopOnError = !stopOnErrorCheck_ || stopOnErrorCheck_->isChecked();
+    scanManager_->setAcquisitionOptions(acquisitionOptions);
+    if (analyzerTypeCombo_
+        && analyzerTypeCombo_->currentText() != QStringLiteral("Mock Spectrum")
+        && (!currentAnalyzer_ || !currentAnalyzer_->isConnected())) {
+        appendLog(QStringLiteral("真实仪表未连接，将使用 Mock Spectrum 数据完成扫描。"));
+    }
     scanManager_->startScan(config);
     updateActionButtons();
 }

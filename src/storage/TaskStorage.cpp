@@ -162,7 +162,9 @@ bool TaskStorage::appendTrace(const Core::ScanResult &result)
             return false;
         }
     } else if (result.freqs.size() != traceFrequencyCount_) {
-        setError(QStringLiteral("频率点数量变化，拒绝写入 traces.csv，避免文件损坏。"));
+        setError(QStringLiteral("频率点数不一致：expected=%1 actual=%2，拒绝写入 traces.csv，避免文件损坏。")
+                     .arg(traceFrequencyCount_)
+                     .arg(result.freqs.size()));
         return false;
     }
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.7.0
+    VERSION 0.8.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -51,6 +51,10 @@ set(PROJECT_SOURCES
     src/devices/spectrum/ISpectrumAnalyzer.h
     src/devices/spectrum/SpectrumConfig.h
     src/devices/spectrum/SpectrumTrace.h
+    src/devices/spectrum/SpectrumAcquisitionRequest.h
+    src/devices/spectrum/SpectrumAcquisitionResult.h
+    src/devices/spectrum/SpectrumAcquisitionWorker.h
+    src/devices/spectrum/SpectrumAcquisitionWorker.cpp
     src/devices/spectrum/MockSpectrumAnalyzer.h
     src/devices/spectrum/MockSpectrumAnalyzer.cpp
     src/devices/spectrum/ScpiTcpClient.h
@@ -59,6 +63,10 @@ set(PROJECT_SOURCES
     src/devices/spectrum/GenericScpiSpectrumAnalyzer.cpp
     src/devices/spectrum/Zna67SpectrumAnalyzer.h
     src/devices/spectrum/Zna67SpectrumAnalyzer.cpp
+    src/devices/spectrum/FswSpectrumAnalyzer.h
+    src/devices/spectrum/FswSpectrumAnalyzer.cpp
+    src/devices/spectrum/N9020aSpectrumAnalyzer.h
+    src/devices/spectrum/N9020aSpectrumAnalyzer.cpp
     src/devices/spectrum/SpectrumAnalyzerFactory.h
     src/devices/spectrum/SpectrumAnalyzerFactory.cpp
 

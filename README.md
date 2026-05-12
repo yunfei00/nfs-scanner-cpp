@@ -4,6 +4,15 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 
 ## 当前版本
 
+### v0.8.0 频谱采集稳定性版本
+
+- 新增 SpectrumAcquisitionWorker。
+- 扫描流程支持异步频谱采集。
+- 支持采集超时、重试和失败停止策略。
+- 新增 R&S FSW 初版 TCP SCPI 适配。
+- 新增 Keysight N9020A 初版 TCP SCPI 适配。
+- 保留 Mock Spectrum fallback。
+
 ### v0.7.0 频谱仪框架版本
 
 - 新增 ISpectrumAnalyzer 统一接口。
@@ -147,17 +156,17 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v0.7.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 主窗口标题为 `NFS Scanner v0.8.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
 - 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
 - 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
 - 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
 - 扫描区域：1 行 9 列表格配置起点、终点和 step，支持蛇形扫描和驻留时间设置。
-- 仪表区域：支持 Mock Spectrum、Generic SCPI、R&S ZNA67，支持 TCP SCPI 连接、断开、查询 IDN、应用配置和单次扫描。
-- 扫描流程：ScanManager 使用 QTimer 模拟扫描推进，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
+- 仪表区域：支持 Mock Spectrum、Generic SCPI、R&S ZNA67、R&S FSW、Keysight N9020A，支持 TCP SCPI 连接、断开、查询 IDN、应用配置和单次扫描。
+- 扫描流程：ScanManager 使用异步 SpectrumAcquisitionWorker 采集频谱，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
 - 数据存储：扫描开始创建任务目录，持续写入 `points.csv` 和 `traces.csv`，完成后可打开结果目录。
 - 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并生成热力图。
 - 热力图增强：支持 LUT、Colorbar、自动/手动 vmin/vmax、透明度控制、主界面预览和弹窗导出 PNG。
-- 真实频谱仪框架：ScanManager 扫描时优先采集已连接仪表数据，未连接时自动使用 Mock Spectrum fallback。
+- 真实频谱仪框架：ScanManager 扫描时优先采集已连接仪表数据，未连接时自动使用 Mock Spectrum fallback，并支持 timeout/retry/stopOnError 策略。
 
 ## Release 发布流程
 
@@ -181,15 +190,15 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.8.0
+git push origin v0.8.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.7.0.zip
-NFSScanner-Setup-v0.7.0.exe
+NFSScanner-Windows-Portable-v0.8.0.zip
+NFSScanner-Setup-v0.8.0.exe
 ```
 
 两个版本区别：
@@ -207,8 +216,8 @@ NFSScanner-Setup-v0.7.0.exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.7.0
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.7.0
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.8.0
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.8.0
 ```
 
 本地脚本输出目录：
@@ -219,8 +228,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Ve
 
 ## 后续开发路线
 
-1. 完善 FSW / N9020A 适配。
-2. 增加异步采集线程，避免真实仪表慢响应时阻塞 UI。
+1. 将真实 SCPI 设备对象迁移到设备专用线程。
+2. 增加 SCPI 命令队列和更完整的异步 socket 状态机。
 3. 完善扫描任务队列、断点续扫和异常恢复。
 4. 增加 Trace 管理和报告导出。
 5. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。

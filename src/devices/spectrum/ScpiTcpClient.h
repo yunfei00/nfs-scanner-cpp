@@ -19,6 +19,7 @@ public:
     void disconnectFromHost();
     bool isConnected() const;
 
+    void clearBuffer();
     bool writeCommand(const QString &command);
     QString queryString(const QString &command, int timeoutMs = 5000);
     QByteArray queryBinaryOrText(const QString &command, int timeoutMs = 10000);

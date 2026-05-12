@@ -187,6 +187,9 @@ private:
     QPushButton *queryIdnButton_ = nullptr;
     QPushButton *applyAnalyzerConfigButton_ = nullptr;
     QPushButton *singleSweepButton_ = nullptr;
+    QSpinBox *acquisitionTimeoutSpin_ = nullptr;
+    QSpinBox *acquisitionRetrySpin_ = nullptr;
+    QCheckBox *stopOnErrorCheck_ = nullptr;
     QLineEdit *startFreqEdit_ = nullptr;
     QLineEdit *stopFreqEdit_ = nullptr;
     QLineEdit *rbwEdit_ = nullptr;

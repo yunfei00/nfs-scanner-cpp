@@ -4,6 +4,8 @@
 #include <QElapsedTimer>
 #include <QTcpSocket>
 
+#include <algorithm>
+
 namespace NFSScanner::Devices::Spectrum {
 
 ScpiTcpClient::ScpiTcpClient(QObject *parent)
@@ -33,6 +35,7 @@ bool ScpiTcpClient::connectToHost(const QString &host, quint16 port, int timeout
     }
 
     emit logMessage(QStringLiteral("SCPI 已连接：%1:%2").arg(host).arg(port));
+    emit logMessage(QStringLiteral("SCPI 连接状态：ConnectedState"));
     return true;
 }
 
@@ -46,12 +49,24 @@ void ScpiTcpClient::disconnectFromHost()
     if (socket_->state() != QAbstractSocket::UnconnectedState) {
         socket_->waitForDisconnected(1000);
     }
+    emit logMessage(QStringLiteral("SCPI 连接状态：UnconnectedState"));
     emit logMessage(QStringLiteral("SCPI 已断开。"));
 }
 
 bool ScpiTcpClient::isConnected() const
 {
     return socket_->state() == QAbstractSocket::ConnectedState;
+}
+
+void ScpiTcpClient::clearBuffer()
+{
+    if (!socket_) {
+        return;
+    }
+
+    while (socket_->bytesAvailable() > 0) {
+        socket_->readAll();
+    }
 }
 
 bool ScpiTcpClient::writeCommand(const QString &command)
@@ -87,6 +102,7 @@ QString ScpiTcpClient::queryString(const QString &command, int timeoutMs)
 QByteArray ScpiTcpClient::queryBinaryOrText(const QString &command, int timeoutMs)
 {
     lastError_.clear();
+    clearBuffer();
     if (!writeCommand(command)) {
         return {};
     }
@@ -106,7 +122,7 @@ QByteArray ScpiTcpClient::queryBinaryOrText(const QString &command, int timeoutM
         }
 
         result.append(socket_->readAll());
-        while (socket_->waitForReadyRead(30)) {
+        while (socket_->waitForReadyRead(50)) {
             result.append(socket_->readAll());
         }
 
@@ -116,7 +132,7 @@ QByteArray ScpiTcpClient::queryBinaryOrText(const QString &command, int timeoutM
     }
 
     if (result.isEmpty()) {
-        setError(QStringLiteral("SCPI 查询超时：%1").arg(command));
+        setError(QStringLiteral("SCPI query timeout: %1").arg(command));
     }
     return result;
 }

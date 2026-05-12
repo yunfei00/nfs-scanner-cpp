@@ -1,9 +1,10 @@
 #include "core/ScanManager.h"
 
-#include "core/ScanResult.h"
 #include "core/ScanPathPlanner.h"
+#include "core/ScanResult.h"
 
 #include <QDateTime>
+#include <QMetaType>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -11,6 +12,8 @@
 #include <utility>
 
 namespace NFSScanner::Core {
+
+namespace Spectrum = NFSScanner::Devices::Spectrum;
 
 QString scanStateToString(ScanState state)
 {
@@ -39,17 +42,23 @@ QString scanStateToString(ScanState state)
 ScanManager::ScanManager(QObject *parent)
     : QObject(parent)
 {
-    timer_.setSingleShot(false);
-    connect(&timer_, &QTimer::timeout, this, &ScanManager::advanceScan);
-    connect(&fallbackSpectrum_, &NFSScanner::Devices::Spectrum::ISpectrumAnalyzer::logMessage,
-            this, &ScanManager::logMessage);
-    connect(&fallbackSpectrum_, &NFSScanner::Devices::Spectrum::ISpectrumAnalyzer::errorOccurred,
-            this, &ScanManager::logMessage);
+    qRegisterMetaType<Spectrum::SpectrumAcquisitionRequest>("SpectrumAcquisitionRequest");
+    qRegisterMetaType<Spectrum::SpectrumAcquisitionResult>("SpectrumAcquisitionResult");
+
+    timer_.setSingleShot(true);
+    connect(&timer_, &QTimer::timeout, this, [this]() {
+        if (state_ == ScanState::Running && currentIndex_ < points_.size()) {
+            requestAcquisition(points_.at(currentIndex_));
+        }
+    });
+    connect(&fallbackSpectrum_, &Spectrum::ISpectrumAnalyzer::logMessage, this, &ScanManager::logMessage);
+    connect(&fallbackSpectrum_, &Spectrum::ISpectrumAnalyzer::errorOccurred, this, &ScanManager::logMessage);
 }
 
 ScanManager::~ScanManager()
 {
     timer_.stop();
+    shutdownAcquisitionThread(true);
 }
 
 void ScanManager::startScan(const ScanConfig &config)
@@ -59,6 +68,7 @@ void ScanManager::startScan(const ScanConfig &config)
         return;
     }
 
+    shutdownAcquisitionThread(true);
     setState(ScanState::Preparing);
 
     ScanPathPlanner planner;
@@ -67,7 +77,6 @@ void ScanManager::startScan(const ScanConfig &config)
         const QString message = planner.lastError().isEmpty()
             ? QStringLiteral("扫描路径生成失败。")
             : planner.lastError();
-        timer_.stop();
         points_.clear();
         currentIndex_ = 0;
         setState(ScanState::Error);
@@ -78,15 +87,14 @@ void ScanManager::startScan(const ScanConfig &config)
     config_ = config;
     points_ = std::move(points);
     currentIndex_ = 0;
+    acquisitionInProgress_ = false;
 
     fallbackSpectrum_.configure(spectrumConfig_);
     fallbackSpectrum_.connectDevice(QVariantMap{});
 
     if (analyzer_ && analyzer_->isConnected() && !analyzer_->configure(spectrumConfig_)) {
         const QString message = QStringLiteral("配置频谱仪失败：%1").arg(analyzer_->lastError());
-        timer_.stop();
         points_.clear();
-        currentIndex_ = 0;
         setState(ScanState::Error);
         emit scanError(message);
         return;
@@ -94,13 +102,14 @@ void ScanManager::startScan(const ScanConfig &config)
 
     if (!storage_.beginTask(config_, points_.size())) {
         const QString message = QStringLiteral("创建任务目录失败：%1").arg(storage_.lastError());
-        timer_.stop();
         points_.clear();
         currentIndex_ = 0;
         setState(ScanState::Error);
         emit scanError(message);
         return;
     }
+
+    setupAcquisitionThread();
 
     const int intervalMs = std::max(50, config_.dwellMs);
     timer_.setInterval(intervalMs);
@@ -109,13 +118,19 @@ void ScanManager::startScan(const ScanConfig &config)
     emit logMessage(QStringLiteral("任务目录：%1").arg(storage_.taskDir()));
     emit progressChanged(0, points_.size());
     emit estimatedChanged(points_.size(), static_cast<int>(std::ceil(points_.size() * intervalMs / 1000.0)));
-    emit logMessage(QStringLiteral("扫描开始，共 %1 个点，驻留时间 %2 ms，蛇形扫描：%3。")
+    emit logMessage(QStringLiteral("扫描开始，共 %1 个点，驻留时间 %2 ms，蛇形扫描：%3，采集超时 %4 ms，重试 %5 次。")
                         .arg(points_.size())
                         .arg(intervalMs)
-                        .arg(config_.snakeMode ? QStringLiteral("启用") : QStringLiteral("关闭")));
+                        .arg(config_.snakeMode ? QStringLiteral("启用") : QStringLiteral("关闭"))
+                        .arg(acquisitionOptions_.timeoutMs)
+                        .arg(acquisitionOptions_.retryCount));
+
+    if (!analyzer_ || !analyzer_->isConnected()) {
+        emit logMessage(QStringLiteral("真实频谱仪未连接，将使用 Mock Spectrum 数据。"));
+    }
 
     setState(ScanState::Running);
-    timer_.start();
+    processNextPoint();
 }
 
 void ScanManager::pauseScan()
@@ -126,7 +141,9 @@ void ScanManager::pauseScan()
 
     timer_.stop();
     setState(ScanState::Paused);
-    emit logMessage(QStringLiteral("扫描已暂停。"));
+    emit logMessage(acquisitionInProgress_
+                        ? QStringLiteral("扫描已暂停，当前采集完成后生效。")
+                        : QStringLiteral("扫描已暂停。"));
 }
 
 void ScanManager::resumeScan()
@@ -136,8 +153,10 @@ void ScanManager::resumeScan()
     }
 
     setState(ScanState::Running);
-    timer_.start();
     emit logMessage(QStringLiteral("扫描继续。"));
+    if (!acquisitionInProgress_) {
+        processNextPoint();
+    }
 }
 
 void ScanManager::stopScan()
@@ -146,11 +165,32 @@ void ScanManager::stopScan()
         return;
     }
 
-    setState(ScanState::Stopping);
     timer_.stop();
+    setState(ScanState::Stopping);
     storage_.finishTask();
     setState(ScanState::Stopped);
     emit logMessage(QStringLiteral("扫描已停止，已保存部分数据：%1").arg(storage_.taskDir()));
+
+    if (!acquisitionInProgress_) {
+        shutdownAcquisitionThread(true);
+    }
+}
+
+void ScanManager::setSpectrumAnalyzer(Spectrum::ISpectrumAnalyzer *analyzer)
+{
+    analyzer_ = analyzer;
+}
+
+void ScanManager::setSpectrumConfig(const Spectrum::SpectrumConfig &config)
+{
+    spectrumConfig_ = config;
+}
+
+void ScanManager::setAcquisitionOptions(const ScanAcquisitionOptions &options)
+{
+    acquisitionOptions_.timeoutMs = std::clamp(options.timeoutMs, 1000, 60000);
+    acquisitionOptions_.retryCount = std::clamp(options.retryCount, 0, 5);
+    acquisitionOptions_.stopOnError = options.stopOnError;
 }
 
 ScanState ScanManager::state() const
@@ -168,91 +208,202 @@ int ScanManager::totalCount() const
     return points_.size();
 }
 
-void ScanManager::setSpectrumAnalyzer(NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer)
+void ScanManager::processNextPoint()
 {
-    analyzer_ = analyzer;
-}
-
-void ScanManager::setSpectrumConfig(const NFSScanner::Devices::Spectrum::SpectrumConfig &config)
-{
-    spectrumConfig_ = config;
-}
-
-void ScanManager::advanceScan()
-{
-    if (state_ != ScanState::Running) {
+    if (state_ != ScanState::Running || acquisitionInProgress_) {
         return;
     }
 
     if (currentIndex_ >= points_.size()) {
-        timer_.stop();
-        if (!storage_.finishTask()) {
-            setState(ScanState::Error);
-            emit scanError(QStringLiteral("完成任务保存失败：%1").arg(storage_.lastError()));
-            return;
-        }
-        setState(ScanState::Finished);
-        emit scanFinished(storage_.taskDir());
+        finishScan();
         return;
     }
 
     const ScanPoint point = points_.at(currentIndex_);
-    const QDateTime timestamp = QDateTime::currentDateTime();
-    NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *activeAnalyzer =
-        analyzer_ && analyzer_->isConnected() ? analyzer_ : static_cast<NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *>(&fallbackSpectrum_);
-    const NFSScanner::Devices::Spectrum::SpectrumTrace trace =
-        activeAnalyzer->singleSweep(point.index, point.x, point.y, point.z);
-
-    if (trace.freqs.isEmpty() || trace.values.isEmpty() || trace.freqs.size() != trace.values.size()) {
-        timer_.stop();
-        setState(ScanState::Error);
-        emit scanError(QStringLiteral("频谱采集失败：%1").arg(activeAnalyzer->lastError()));
-        return;
-    }
-
-    ScanResult result;
-    result.index = point.index;
-    result.x = point.x;
-    result.y = point.y;
-    result.z = point.z;
-    result.timestamp = trace.timestamp.isValid() ? trace.timestamp : timestamp;
-    result.traceId = trace.traceId;
-    result.freqs = trace.freqs;
-    result.values = trace.values;
-
-    if (!storage_.appendPoint(point, timestamp) || !storage_.appendTrace(result)) {
-        timer_.stop();
-        setState(ScanState::Error);
-        emit scanError(QStringLiteral("数据保存失败：%1").arg(storage_.lastError()));
-        return;
-    }
-
-    ++currentIndex_;
-
     const int total = points_.size();
+    const int intervalMs = std::max(50, config_.dwellMs);
     const int remaining = std::max(0, total - currentIndex_);
-    const int estimatedSeconds = static_cast<int>(std::ceil(remaining * timer_.interval() / 1000.0));
+    const int estimatedSeconds = static_cast<int>(std::ceil(remaining * intervalMs / 1000.0));
 
-    emit currentPointChanged(currentIndex_, total, point.x, point.y, point.z);
-    emit progressChanged(currentIndex_, total);
+    emit currentPointChanged(point.index, total, point.x, point.y, point.z);
     emit estimatedChanged(remaining, estimatedSeconds);
-    emit logMessage(QStringLiteral("扫描点 %1/%2：X=%3 Y=%4 Z=%5")
-                        .arg(currentIndex_)
+    emit logMessage(QStringLiteral("到达扫描点 %1/%2：X=%3 Y=%4 Z=%5，等待采集。")
+                        .arg(point.index)
                         .arg(total)
                         .arg(point.x, 0, 'f', 2)
                         .arg(point.y, 0, 'f', 2)
                         .arg(point.z, 0, 'f', 2));
 
-    if (currentIndex_ >= total) {
-        timer_.stop();
-        if (!storage_.finishTask()) {
+    timer_.start(intervalMs);
+}
+
+void ScanManager::requestAcquisition(const ScanPoint &point)
+{
+    if (state_ != ScanState::Running || !acquisitionWorker_) {
+        return;
+    }
+
+    Spectrum::SpectrumAcquisitionRequest request;
+    request.pointIndex = point.index;
+    request.x = point.x;
+    request.y = point.y;
+    request.z = point.z;
+    request.timeoutMs = acquisitionOptions_.timeoutMs;
+    request.retryCount = acquisitionOptions_.retryCount;
+    acquisitionInProgress_ = true;
+    emit acquireSpectrumRequested(request);
+}
+
+void ScanManager::onAcquisitionFinished(const Spectrum::SpectrumAcquisitionResult &result)
+{
+    acquisitionInProgress_ = false;
+
+    if (state_ == ScanState::Stopped || state_ == ScanState::Stopping || state_ == ScanState::Idle) {
+        emit logMessage(QStringLiteral("收到已停止扫描的采集结果，已忽略：点 %1。").arg(result.pointIndex));
+        shutdownAcquisitionThread(false);
+        return;
+    }
+
+    if (state_ != ScanState::Running && state_ != ScanState::Paused) {
+        return;
+    }
+
+    if (!result.ok) {
+        const QString message = QStringLiteral("频谱采集失败：点 %1，%2").arg(result.pointIndex).arg(result.error);
+        emit logMessage(message);
+        if (acquisitionOptions_.stopOnError) {
+            timer_.stop();
+            storage_.finishTask();
             setState(ScanState::Error);
-            emit scanError(QStringLiteral("完成任务保存失败：%1").arg(storage_.lastError()));
+            shutdownAcquisitionThread(false);
+            emit scanError(message);
             return;
         }
-        setState(ScanState::Finished);
-        emit scanFinished(storage_.taskDir());
+
+        ++currentIndex_;
+        emit progressChanged(currentIndex_, points_.size());
+        if (state_ == ScanState::Running) {
+            processNextPoint();
+        }
+        return;
     }
+
+    ScanPoint point;
+    point.index = result.pointIndex;
+    point.x = result.x;
+    point.y = result.y;
+    point.z = result.z;
+
+    ScanResult scanResult;
+    scanResult.index = result.pointIndex;
+    scanResult.x = result.x;
+    scanResult.y = result.y;
+    scanResult.z = result.z;
+    scanResult.timestamp = result.timestamp.isValid() ? result.timestamp : QDateTime::currentDateTime();
+    scanResult.traceId = result.trace.traceId;
+    scanResult.freqs = result.trace.freqs;
+    scanResult.values = result.trace.values;
+
+    if (!storage_.appendPoint(point, scanResult.timestamp) || !storage_.appendTrace(scanResult)) {
+        timer_.stop();
+        storage_.finishTask();
+        setState(ScanState::Error);
+        shutdownAcquisitionThread(false);
+        emit scanError(QStringLiteral("数据保存失败：%1").arg(storage_.lastError()));
+        return;
+    }
+
+    ++currentIndex_;
+    const int total = points_.size();
+    const int remaining = std::max(0, total - currentIndex_);
+    const int estimatedSeconds = static_cast<int>(std::ceil(remaining * timer_.interval() / 1000.0));
+
+    emit progressChanged(currentIndex_, total);
+    emit estimatedChanged(remaining, estimatedSeconds);
+    emit logMessage(QStringLiteral("扫描点 %1/%2 采集完成：X=%3 Y=%4 Z=%5，频率点=%6。")
+                        .arg(currentIndex_)
+                        .arg(total)
+                        .arg(result.x, 0, 'f', 2)
+                        .arg(result.y, 0, 'f', 2)
+                        .arg(result.z, 0, 'f', 2)
+                        .arg(result.trace.values.size()));
+
+    if (currentIndex_ >= total) {
+        finishScan();
+    } else if (state_ == ScanState::Running) {
+        processNextPoint();
+    } else {
+        emit logMessage(QStringLiteral("扫描已暂停，等待继续。"));
+    }
+}
+
+void ScanManager::setupAcquisitionThread()
+{
+    shutdownAcquisitionThread(true);
+
+    acquisitionThread_ = new QThread(this);
+    acquisitionWorker_ = new Spectrum::SpectrumAcquisitionWorker;
+    acquisitionWorker_->setAnalyzer(analyzer_);
+    acquisitionWorker_->setFallbackAnalyzer(&fallbackSpectrum_);
+    acquisitionWorker_->setStopOnError(acquisitionOptions_.stopOnError);
+    acquisitionWorker_->setRetryCount(acquisitionOptions_.retryCount);
+    acquisitionWorker_->moveToThread(acquisitionThread_);
+
+    connect(acquisitionThread_, &QThread::finished, acquisitionWorker_, &QObject::deleteLater);
+    connect(this, &ScanManager::acquireSpectrumRequested,
+            acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::acquire,
+            Qt::QueuedConnection);
+    connect(acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::acquisitionStarted,
+            this, [this](int pointIndex) {
+                emit logMessage(QStringLiteral("开始异步频谱采集：点 %1。").arg(pointIndex));
+            });
+    connect(acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::acquisitionFinished,
+            this, &ScanManager::onAcquisitionFinished,
+            Qt::QueuedConnection);
+    connect(acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::logMessage,
+            this, &ScanManager::logMessage,
+            Qt::QueuedConnection);
+    connect(acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::errorOccurred,
+            this, &ScanManager::logMessage,
+            Qt::QueuedConnection);
+
+    acquisitionThread_->start();
+}
+
+void ScanManager::shutdownAcquisitionThread(bool waitForFinish)
+{
+    if (!acquisitionThread_) {
+        acquisitionWorker_ = nullptr;
+        return;
+    }
+
+    acquisitionThread_->quit();
+    if (waitForFinish) {
+        if (!acquisitionThread_->wait(70000)) {
+            acquisitionThread_->terminate();
+            acquisitionThread_->wait(3000);
+        }
+    } else if (!acquisitionThread_->wait(10)) {
+        return;
+    }
+
+    acquisitionThread_->deleteLater();
+    acquisitionThread_ = nullptr;
+    acquisitionWorker_ = nullptr;
+}
+
+void ScanManager::finishScan()
+{
+    timer_.stop();
+    if (!storage_.finishTask()) {
+        setState(ScanState::Error);
+        shutdownAcquisitionThread(false);
+        emit scanError(QStringLiteral("完成任务保存失败：%1").arg(storage_.lastError()));
+        return;
+    }
+    setState(ScanState::Finished);
+    shutdownAcquisitionThread(false);
+    emit scanFinished(storage_.taskDir());
 }
 
 void ScanManager::setState(ScanState state)
