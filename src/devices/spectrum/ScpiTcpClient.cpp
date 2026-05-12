@@ -99,6 +99,17 @@ QString ScpiTcpClient::queryString(const QString &command, int timeoutMs)
     return QString::fromUtf8(bytes).trimmed();
 }
 
+QString ScpiTcpClient::queryLargeText(const QString &command, int timeoutMs)
+{
+    const QByteArray bytes = queryBinaryOrText(command, timeoutMs);
+    if (bytes.isEmpty()) {
+        return {};
+    }
+
+    emit logMessage(QStringLiteral("SCPI large response: %1 bytes").arg(bytes.size()));
+    return QString::fromUtf8(bytes).trimmed();
+}
+
 QByteArray ScpiTcpClient::queryBinaryOrText(const QString &command, int timeoutMs)
 {
     lastError_.clear();
@@ -112,21 +123,24 @@ QByteArray ScpiTcpClient::queryBinaryOrText(const QString &command, int timeoutM
     timer.start();
     const int safeTimeout = std::max(1, timeoutMs);
 
+    qint64 lastReadElapsed = -1;
     while (timer.elapsed() < safeTimeout) {
         const int remaining = std::max(1, safeTimeout - static_cast<int>(timer.elapsed()));
         if (!socket_->waitForReadyRead(std::min(remaining, 250))) {
-            if (!result.isEmpty()) {
+            if (!result.isEmpty() && lastReadElapsed >= 0 && timer.elapsed() - lastReadElapsed > 200) {
                 break;
             }
             continue;
         }
 
         result.append(socket_->readAll());
+        lastReadElapsed = timer.elapsed();
         while (socket_->waitForReadyRead(50)) {
             result.append(socket_->readAll());
+            lastReadElapsed = timer.elapsed();
         }
 
-        if (result.contains('\n')) {
+        if (result.contains('\n') && result.size() < 8192) {
             break;
         }
     }

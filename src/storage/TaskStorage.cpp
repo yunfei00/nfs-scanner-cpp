@@ -1,6 +1,7 @@
 #include "storage/TaskStorage.h"
 
 #include "app/AppVersion.h"
+#include "devices/spectrum/SpectrumParsingUtils.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -8,7 +9,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringConverter>
+#include <QStringList>
 #include <QTextStream>
+
+#include <algorithm>
 
 namespace NFSScanner::Storage {
 
@@ -17,21 +21,6 @@ namespace {
 QString csvNumber(double value, int precision)
 {
     return QString::number(value, 'f', precision);
-}
-
-QString compactNumber(double value)
-{
-    QString text = QString::number(value, 'f', 3);
-    while (text.contains(QLatin1Char('.')) && text.endsWith(QLatin1Char('0'))) {
-        text.chop(1);
-    }
-    if (text.endsWith(QLatin1Char('.'))) {
-        text.chop(1);
-    }
-    if (text == QStringLiteral("-0")) {
-        return QStringLiteral("0");
-    }
-    return text;
 }
 
 QString safeFileNamePart(const QString &text, const QString &fallback)
@@ -45,11 +34,7 @@ QString safeFileNamePart(const QString &text, const QString &fallback)
         if (illegal.contains(ch)) {
             continue;
         }
-        if (ch.isSpace()) {
-            result.append(QLatin1Char('_'));
-        } else {
-            result.append(ch);
-        }
+        result.append(ch.isSpace() ? QLatin1Char('_') : ch);
     }
 
     while (result.contains(QStringLiteral("__"))) {
@@ -72,6 +57,21 @@ QString jsonTime(const QDateTime &time)
     return time.toString(Qt::ISODateWithMs);
 }
 
+QVector<double> zeros(int count)
+{
+    return QVector<double>(std::max(0, count), 0.0);
+}
+
+QString traceLine(const QString &prefix, const QString &suffix, const QVector<double> &values)
+{
+    QString line = QStringLiteral("%1_%2").arg(prefix, suffix);
+    for (double value : values) {
+        line.append(QLatin1Char(','));
+        line.append(csvNumber(value, 6));
+    }
+    return line;
+}
+
 } // namespace
 
 bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
@@ -88,14 +88,14 @@ bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
         : config.outputDir.trimmed();
     QDir rootDir(rootPath);
     if (!rootDir.mkpath(QStringLiteral("."))) {
-        setError(QStringLiteral("无法创建扫描根目录：%1").arg(rootPath));
+        setError(QStringLiteral("Cannot create scan root directory: %1").arg(rootPath));
         return false;
     }
 
     const QString projectName = safeFileNamePart(config.projectName, QStringLiteral("project"));
     const QString testName = safeFileNamePart(config.testName, QStringLiteral("test"));
     const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-    QString dirName = QStringLiteral("%1_%2_%3").arg(timestamp, projectName, testName);
+    const QString dirName = QStringLiteral("%1_%2_%3").arg(timestamp, projectName, testName);
 
     QString candidatePath = rootDir.filePath(dirName);
     int suffix = 1;
@@ -106,7 +106,7 @@ bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
     taskDir_ = QDir(candidatePath).absolutePath();
     QDir taskDir(taskDir_);
     if (!taskDir.mkpath(QStringLiteral(".")) || !taskDir.mkpath(QStringLiteral("exports"))) {
-        setError(QStringLiteral("无法创建任务目录：%1").arg(taskDir_));
+        setError(QStringLiteral("Cannot create task directory: %1").arg(taskDir_));
         return false;
     }
 
@@ -132,7 +132,7 @@ bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
 bool TaskStorage::appendPoint(const Core::ScanPoint &point, const QDateTime &timestamp)
 {
     if (taskDir_.isEmpty()) {
-        setError(QStringLiteral("任务目录尚未创建，无法写入扫描点。"));
+        setError(QStringLiteral("Task directory has not been created; cannot write scan point."));
         return false;
     }
 
@@ -148,49 +148,99 @@ bool TaskStorage::appendPoint(const Core::ScanPoint &point, const QDateTime &tim
 bool TaskStorage::appendTrace(const Core::ScanResult &result)
 {
     if (taskDir_.isEmpty()) {
-        setError(QStringLiteral("任务目录尚未创建，无法写入频谱数据。"));
+        setError(QStringLiteral("Task directory has not been created; cannot write trace data."));
         return false;
     }
 
-    if (result.freqs.isEmpty() || result.values.isEmpty() || result.freqs.size() != result.values.size()) {
-        setError(QStringLiteral("频谱数据无效：频率点和数据点数量不一致。"));
+    auto trace = result.trace;
+    if (trace.freqs.isEmpty() && !result.freqs.isEmpty()) {
+        trace.traceId = result.traceId;
+        trace.freqs = result.freqs;
+        trace.values = result.values;
+    }
+    if (trace.traceId.trimmed().isEmpty()) {
+        trace.traceId = result.traceId.trimmed().isEmpty() ? QStringLiteral("Trc1_S21") : result.traceId;
+    }
+
+    if (trace.freqs.isEmpty()) {
+        setError(QStringLiteral("Spectrum trace has no frequency axis."));
         return false;
     }
 
     if (!traceFrequencyWritten_) {
-        if (!writeTraceFrequencyRow(result.freqs)) {
+        if (!writeTraceFrequencyRow(trace.freqs)) {
             return false;
         }
-    } else if (result.freqs.size() != traceFrequencyCount_) {
+    } else if (trace.freqs.size() != traceFrequencyCount_) {
         setError(QStringLiteral("频率点数不一致：expected=%1 actual=%2，拒绝写入 traces.csv，避免文件损坏。")
                      .arg(traceFrequencyCount_)
-                     .arg(result.freqs.size()));
+                     .arg(trace.freqs.size()));
         return false;
     }
 
-    const QString prefix = QStringLiteral("%1_%2_%3_%4")
-                               .arg(compactNumber(result.x),
-                                    compactNumber(result.y),
-                                    compactNumber(result.z),
-                                    result.traceId);
+    const QString coordKey = Devices::Spectrum::Parsing::formatCoordKey(result.x, result.y, result.z);
+    const int freqCount = trace.freqs.size();
+    QStringList lines;
 
-    QString reLine = QStringLiteral("%1_re").arg(prefix);
-    QString imLine = QStringLiteral("%1_im").arg(prefix);
-    for (double value : result.values) {
-        reLine.append(QLatin1Char(','));
-        reLine.append(csvNumber(value, 6));
-        imLine.append(QStringLiteral(",0"));
+    auto addTraceLines = [&](const QString &traceId,
+                             QVector<double> realValues,
+                             QVector<double> imagValues,
+                             const QVector<double> &displayValues) -> bool {
+        const QString safeTraceId = traceId.trimmed().isEmpty() ? QStringLiteral("Trc1_S21") : traceId.trimmed();
+        if (realValues.isEmpty() && !displayValues.isEmpty()) {
+            realValues = displayValues;
+        }
+        if (imagValues.isEmpty() && !realValues.isEmpty()) {
+            imagValues = zeros(realValues.size());
+        }
+        if (realValues.size() != freqCount || imagValues.size() != freqCount) {
+            setError(QStringLiteral("Trace %1 point count mismatch: freqs=%2 re=%3 im=%4")
+                         .arg(safeTraceId)
+                         .arg(freqCount)
+                         .arg(realValues.size())
+                         .arg(imagValues.size()));
+            return false;
+        }
+
+        const QString prefix = QStringLiteral("%1_%2").arg(coordKey, safeTraceId);
+        lines << traceLine(prefix, QStringLiteral("re"), realValues);
+        lines << traceLine(prefix, QStringLiteral("im"), imagValues);
+        return true;
+    };
+
+    if (!trace.components.isEmpty()) {
+        for (const auto &component : trace.components) {
+            if (!addTraceLines(component.traceId,
+                               component.realValues,
+                               component.imagValues,
+                               component.displayValues)) {
+                return false;
+            }
+        }
+    } else {
+        QVector<double> realValues = trace.realValues;
+        QVector<double> imagValues = trace.imagValues;
+        if (realValues.isEmpty()) {
+            realValues = trace.values;
+        }
+        if (imagValues.isEmpty() && !realValues.isEmpty()) {
+            imagValues = zeros(realValues.size());
+        }
+        if (!addTraceLines(trace.traceId, realValues, imagValues, trace.values)) {
+            return false;
+        }
     }
 
-    return appendTextLine(tracesPath_, reLine) && appendTextLine(tracesPath_, imLine);
+    for (const QString &line : lines) {
+        if (!appendTextLine(tracesPath_, line)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool TaskStorage::finishTask()
 {
-    if (taskDir_.isEmpty()) {
-        return true;
-    }
-
     return true;
 }
 
@@ -208,7 +258,7 @@ bool TaskStorage::writeTextFile(const QString &path, const QString &content)
 {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        setError(QStringLiteral("写入文件失败：%1，原因：%2").arg(path, file.errorString()));
+        setError(QStringLiteral("Write file failed: %1, reason: %2").arg(path, file.errorString()));
         return false;
     }
 
@@ -216,7 +266,7 @@ bool TaskStorage::writeTextFile(const QString &path, const QString &content)
     stream.setEncoding(QStringConverter::Utf8);
     stream << content;
     if (stream.status() != QTextStream::Ok) {
-        setError(QStringLiteral("写入文件失败：%1").arg(path));
+        setError(QStringLiteral("Write file failed: %1").arg(path));
         return false;
     }
     return true;
@@ -226,7 +276,7 @@ bool TaskStorage::appendTextLine(const QString &path, const QString &line)
 {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
-        setError(QStringLiteral("追加文件失败：%1，原因：%2").arg(path, file.errorString()));
+        setError(QStringLiteral("Append file failed: %1, reason: %2").arg(path, file.errorString()));
         return false;
     }
 
@@ -234,7 +284,7 @@ bool TaskStorage::appendTextLine(const QString &path, const QString &line)
     stream.setEncoding(QStringConverter::Utf8);
     stream << line << '\n';
     if (stream.status() != QTextStream::Ok) {
-        setError(QStringLiteral("追加文件失败：%1").arg(path));
+        setError(QStringLiteral("Append file failed: %1").arg(path));
         return false;
     }
     return true;
@@ -284,7 +334,7 @@ bool TaskStorage::writeScanConfigJson(const Core::ScanConfig &config)
 bool TaskStorage::writeTraceFrequencyRow(const QVector<double> &freqs)
 {
     if (freqs.isEmpty()) {
-        setError(QStringLiteral("频率点为空，无法写入 traces.csv。"));
+        setError(QStringLiteral("Frequency axis is empty; cannot write traces.csv."));
         return false;
     }
 

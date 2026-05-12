@@ -544,6 +544,8 @@ QGroupBox *MainWindow::createInstrumentGroup()
     acquisitionRetrySpin_->setValue(1);
     stopOnErrorCheck_ = new QCheckBox(QStringLiteral("失败停止"), group);
     stopOnErrorCheck_->setChecked(true);
+    analyzerMethodLabel_ = new QLabel(group);
+    analyzerMethodLabel_->setWordWrap(true);
 
     connectGrid->addWidget(new QLabel(QStringLiteral("频谱仪"), group), 0, 0);
     connectGrid->addWidget(analyzerTypeCombo_, 0, 1);
@@ -561,6 +563,8 @@ QGroupBox *MainWindow::createInstrumentGroup()
     connectGrid->addWidget(new QLabel(QStringLiteral("重试次数"), group), 2, 2);
     connectGrid->addWidget(acquisitionRetrySpin_, 2, 3);
     connectGrid->addWidget(stopOnErrorCheck_, 2, 4, 1, 2);
+    connectGrid->addWidget(new QLabel(QStringLiteral("采集方式"), group), 3, 0);
+    connectGrid->addWidget(analyzerMethodLabel_, 3, 1, 1, 7);
     connectGrid->setColumnStretch(1, 1);
     connectGrid->setColumnStretch(3, 1);
     layout->addLayout(connectGrid);
@@ -684,6 +688,8 @@ QGroupBox *MainWindow::createInstrumentGroup()
     connect(queryIdnButton_, &QPushButton::clicked, this, &MainWindow::querySpectrumIdn);
     connect(applyAnalyzerConfigButton_, &QPushButton::clicked, this, &MainWindow::applySpectrumConfig);
     connect(singleSweepButton_, &QPushButton::clicked, this, &MainWindow::runSingleSpectrumSweep);
+    connect(analyzerTypeCombo_, &QComboBox::currentTextChanged, this, &MainWindow::updateAnalyzerMethodHint);
+    updateAnalyzerMethodHint(analyzerTypeCombo_->currentText());
     updateAnalyzerButtons(false);
     return group;
 }
@@ -1346,6 +1352,17 @@ void MainWindow::runSingleSpectrumSweep()
                   .arg(lastSpectrumTrace_.values.size())
                   .arg(*minIt, 0, 'g', 6)
                   .arg(*maxIt, 0, 'g', 6));
+    if (!lastSpectrumTrace_.components.isEmpty()) {
+        QStringList traceNames;
+        for (const auto &component : lastSpectrumTrace_.components) {
+            traceNames << component.traceId;
+        }
+        appendLog(QStringLiteral("单次扫描 components=%1：%2")
+                      .arg(lastSpectrumTrace_.components.size())
+                      .arg(traceNames.join(QStringLiteral(", "))));
+    } else {
+        appendLog(QStringLiteral("单次扫描 components=0，使用主 trace values。"));
+    }
 }
 
 void MainWindow::updateAnalyzerButtons(bool connected)
@@ -1365,6 +1382,31 @@ void MainWindow::updateAnalyzerButtons(bool connected)
     if (singleSweepButton_) {
         singleSweepButton_->setEnabled(connected);
     }
+}
+
+void MainWindow::updateAnalyzerMethodHint(const QString &analyzerName)
+{
+    if (!analyzerMethodLabel_) {
+        return;
+    }
+
+    QString method = QStringLiteral("Mock");
+    QString detail = QStringLiteral("Mock spectrum data, no hardware required.");
+    if (analyzerName.contains(QStringLiteral("ZNA67"), Qt::CaseInsensitive)) {
+        method = QStringLiteral("MMEM CSV");
+        detail = QStringLiteral("Uses MMEM:STOR:TRAC:CHAN 1 and parses exported multi-trace re/im CSV.");
+    } else if (analyzerName.contains(QStringLiteral("FSW"), Qt::CaseInsensitive)) {
+        method = QStringLiteral("MMEM CSV");
+        detail = QStringLiteral("Uses MMEM:STOR1:TRAC and parses frequency/amplitude CSV.");
+    } else if (analyzerName.contains(QStringLiteral("N9020A"), Qt::CaseInsensitive)) {
+        method = QStringLiteral("ASCII TRACE");
+        detail = QStringLiteral("Uses FORM ASC + ABOR + INIT:IMM + TRAC:DATA? TRACE1.");
+    } else if (analyzerName.contains(QStringLiteral("Generic"), Qt::CaseInsensitive)) {
+        method = QStringLiteral("Generic SCPI");
+        detail = QStringLiteral("Uses TRAC:DATA? TRACE1 or CALC:DATA? SDATA fallback.");
+    }
+
+    analyzerMethodLabel_->setText(QStringLiteral("%1 - %2").arg(method, detail));
 }
 
 NFSScanner::Devices::Spectrum::SpectrumConfig MainWindow::readSpectrumConfig() const
@@ -1711,12 +1753,22 @@ void MainWindow::startScan()
         ? resultDirEdit_->text().trimmed()
         : QStringLiteral("data/scans");
 
+    const bool useRealMotion = !isMockMode();
+    if (useRealMotion && (!motionController_ || !motionController_->isOpen())) {
+        const QString message = QStringLiteral("请先打开运动控制串口，或勾选模拟模式。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("运动控制未连接"), message);
+        return;
+    }
+
     remainingText_ = QStringLiteral("--");
     estimatedFinishText_ = QStringLiteral("--");
     updateScanProgress(0, 1);
     currentSpectrumConfig_ = readSpectrumConfig();
     scanManager_->setSpectrumConfig(currentSpectrumConfig_);
     scanManager_->setSpectrumAnalyzer(currentAnalyzer_ && currentAnalyzer_->isConnected() ? currentAnalyzer_ : nullptr);
+    scanManager_->setMotionController(motionController_);
+    scanManager_->setUseRealMotion(useRealMotion);
     Core::ScanAcquisitionOptions acquisitionOptions;
     acquisitionOptions.timeoutMs = acquisitionTimeoutSpin_ ? acquisitionTimeoutSpin_->value() : 10000;
     acquisitionOptions.retryCount = acquisitionRetrySpin_ ? acquisitionRetrySpin_->value() : 1;

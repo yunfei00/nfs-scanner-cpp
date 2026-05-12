@@ -4,6 +4,14 @@ NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当
 
 ## 当前版本
 
+### v0.9.0 真实仪表与真实扫描逻辑迁移版本
+- 根据 Python 真实测试代码迁移 ZNA67 / FSW / N9020A 采集逻辑。
+- ZNA67 支持 MMEM CSV 多 trace re/im 解析。
+- FSW 支持 MMEM CSV 频率/幅度解析。
+- N9020A 支持 ASCII TRACE 采集和 IDN 校验。
+- TaskStorage 支持多 trace 复数 re/im 写入。
+- 扫描流程支持真实运动到位后再采集仪表数据。
+
 ### v0.8.0 频谱采集稳定性版本
 
 - 新增 SpectrumAcquisitionWorker。
@@ -156,7 +164,7 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v0.8.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 主窗口标题为 `NFS Scanner v0.9.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
 - 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
 - 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
 - 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
@@ -190,15 +198,15 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.8.0
-git push origin v0.8.0
+git tag v0.9.0
+git push origin v0.9.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
 
 ```text
-NFSScanner-Windows-Portable-v0.8.0.zip
-NFSScanner-Setup-v0.8.0.exe
+NFSScanner-Windows-Portable-v0.9.0.zip
+NFSScanner-Setup-v0.9.0.exe
 ```
 
 两个版本区别：
@@ -216,8 +224,8 @@ NFSScanner-Setup-v0.8.0.exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.8.0
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.8.0
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.9.0
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.9.0
 ```
 
 本地脚本输出目录：

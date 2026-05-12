@@ -22,13 +22,17 @@ public:
     QString lastError() const override;
 
 private:
-    QVector<double> parseAsciiNumbers(const QByteArray &payload) const;
-    QVector<double> buildFrequencies(int pointCount) const;
+    bool waitOpc(int timeoutMs, const QString &context);
+    double queryDoubleOrFallback(const QString &command, double fallback) const;
+    int queryIntOrFallback(const QString &command, int fallback) const;
+    QString normalizeTraceMode(const QString &mode) const;
     SpectrumTrace traceFromNumbers(const QVector<double> &numbers) const;
     void setError(const QString &message);
 
     ScpiTcpClient client_;
     SpectrumConfig config_;
+    QString cachedIdnText_;
+    QString traceMode_ = QStringLiteral("WRIT");
     QString lastError_;
 };
 

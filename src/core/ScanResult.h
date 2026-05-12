@@ -1,5 +1,7 @@
 #pragma once
 
+#include "devices/spectrum/SpectrumTrace.h"
+
 #include <QDateTime>
 #include <QString>
 #include <QVector>
@@ -16,6 +18,7 @@ struct ScanResult
     QString traceId = QStringLiteral("Trc1_S21");
     QVector<double> freqs;
     QVector<double> values;
+    NFSScanner::Devices::Spectrum::SpectrumTrace trace;
 };
 
 } // namespace NFSScanner::Core

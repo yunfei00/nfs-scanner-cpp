@@ -94,6 +94,7 @@ private:
     void applySpectrumConfig();
     void runSingleSpectrumSweep();
     void updateAnalyzerButtons(bool connected);
+    void updateAnalyzerMethodHint(const QString &analyzerName);
     NFSScanner::Devices::Spectrum::SpectrumConfig readSpectrumConfig() const;
     double readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) const;
     QString selectedDisplayMode() const;
@@ -180,6 +181,7 @@ private:
     QLabel *colorbarMinLabel_ = nullptr;
     QLabel *colorbarMaxLabel_ = nullptr;
     QComboBox *analyzerTypeCombo_ = nullptr;
+    QLabel *analyzerMethodLabel_ = nullptr;
     QLineEdit *analyzerHostEdit_ = nullptr;
     QLineEdit *analyzerPortEdit_ = nullptr;
     QPushButton *analyzerConnectButton_ = nullptr;

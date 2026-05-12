@@ -22,12 +22,17 @@ public:
     QString lastError() const override;
 
 private:
-    QVector<double> parseAsciiNumbers(const QByteArray &payload) const;
-    QVector<double> buildFrequencies(int pointCount) const;
+    bool waitOpc(int timeoutMs, const QString &context);
+    QString normalizeTraceMode(const QString &mode) const;
+    bool parseMmemCsv(const QString &rawText, SpectrumTrace *outTrace, QString *error) const;
     void setError(const QString &message);
 
     ScpiTcpClient client_;
     SpectrumConfig config_;
+    QString mmemTempTracePath_ = QStringLiteral(R"(C:\data.csv)");
+    double clearWriteSettleSeconds_ = 0.2;
+    QString activeTraceName_ = QStringLiteral("TRACE1");
+    QString traceMode_ = QStringLiteral("MAXH");
     QString lastError_;
 };
 

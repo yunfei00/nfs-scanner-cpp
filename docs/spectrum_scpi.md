@@ -90,7 +90,44 @@ x_y_z_Trc1_S21_re,...
 x_y_z_Trc1_S21_im,0,0,0,...
 ```
 
-当前 `SpectrumTrace.values` 表示幅度，`im` 行仍写 0。多 trace 和复数原始保存后续扩展。
+## v0.9.0 Python 迁移更新
+
+ZNA67 现在优先使用 Python 已验证的 MMEM CSV 导出流程：
+
+```text
+MMEM:STOR:TRAC:CHAN 1, "C:\temp\data.csv"
+*OPC?
+MMEM:DATA? "C:\temp\data.csv"
+MMEM:DEL "C:\temp\data.csv"
+*OPC?
+```
+
+解析 `freq[Hz];re:Trace;im:Trace` 分号 CSV，并保存多 trace re/im 行。
+
+FSW 现在使用 MMEM CSV：
+
+```text
+DISP:TRAC1:MODE WRIT
+DISP:TRAC1:MODE MAXH
+DISP TRAC1 ON
+:FORM:DEXP:DSEP POIN
+:FORM:DEXP:FORM CSV
+MMEM:STOR1:TRAC 1,"C:\data.csv"
+*OPC?
+MMEM:DATA? "C:\data.csv"
+```
+
+N9020A 连接后校验 `*IDN?`，配置前发送 `*CLS` 和 `FORM ASC`，采集使用：
+
+```text
+FORM ASC
+ABOR
+INIT:IMM
+*OPC?
+TRAC:DATA? TRACE1
+```
+
+`TaskStorage` 已支持 `SpectrumTrace.components`，可写出多个 `x_y_z_<trace>_re/im` 行。
 
 ## 异步采集
 

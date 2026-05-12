@@ -11,10 +11,15 @@
 #include "storage/TaskStorage.h"
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QString>
 #include <QThread>
 #include <QTimer>
 #include <QVector>
+
+namespace NFSScanner::Devices::Motion {
+class IMotionController;
+}
 
 namespace NFSScanner::Core {
 
@@ -53,6 +58,8 @@ public:
     void setSpectrumAnalyzer(NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer);
     void setSpectrumConfig(const NFSScanner::Devices::Spectrum::SpectrumConfig &config);
     void setAcquisitionOptions(const ScanAcquisitionOptions &options);
+    void setMotionController(NFSScanner::Devices::Motion::IMotionController *motionController);
+    void setUseRealMotion(bool enabled);
 
     ScanState state() const;
     int currentIndex() const;
@@ -71,6 +78,10 @@ signals:
 
 private:
     void processNextPoint();
+    void beginPointMotion(const ScanPoint &point);
+    void pollMotion();
+    bool motionTargetReached(const ScanPoint &point) const;
+    void startDwellForPoint(const ScanPoint &point);
     void requestAcquisition(const ScanPoint &point);
     void onAcquisitionFinished(const NFSScanner::Devices::Spectrum::SpectrumAcquisitionResult &result);
     void setupAcquisitionThread();
@@ -84,13 +95,25 @@ private:
     NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumConfig spectrumConfig_;
     NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer fallbackSpectrum_;
+    NFSScanner::Devices::Motion::IMotionController *motionController_ = nullptr;
     ScanAcquisitionOptions acquisitionOptions_;
     QThread *acquisitionThread_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumAcquisitionWorker *acquisitionWorker_ = nullptr;
     QTimer timer_;
+    QTimer motionPollTimer_;
+    QElapsedTimer motionElapsedTimer_;
     ScanState state_ = ScanState::Idle;
     int currentIndex_ = 0;
     bool acquisitionInProgress_ = false;
+    bool motionInProgress_ = false;
+    bool useRealMotion_ = false;
+    ScanPoint activePoint_;
+    double motionCurrentX_ = 0.0;
+    double motionCurrentY_ = 0.0;
+    double motionCurrentZ_ = 0.0;
+    QString motionStatus_;
+    double motionToleranceMm_ = 0.05;
+    int motionTimeoutMs_ = 30000;
 };
 
 } // namespace NFSScanner::Core

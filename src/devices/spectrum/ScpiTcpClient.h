@@ -23,6 +23,7 @@ public:
     bool writeCommand(const QString &command);
     QString queryString(const QString &command, int timeoutMs = 5000);
     QByteArray queryBinaryOrText(const QString &command, int timeoutMs = 10000);
+    QString queryLargeText(const QString &command, int timeoutMs = 30000);
 
     QString lastError() const;
 

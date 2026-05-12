@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.8.0
+    VERSION 0.9.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -51,6 +51,8 @@ set(PROJECT_SOURCES
     src/devices/spectrum/ISpectrumAnalyzer.h
     src/devices/spectrum/SpectrumConfig.h
     src/devices/spectrum/SpectrumTrace.h
+    src/devices/spectrum/SpectrumParsingUtils.h
+    src/devices/spectrum/SpectrumParsingUtils.cpp
     src/devices/spectrum/SpectrumAcquisitionRequest.h
     src/devices/spectrum/SpectrumAcquisitionResult.h
     src/devices/spectrum/SpectrumAcquisitionWorker.h

@@ -2,6 +2,8 @@
 
 #include "core/ScanPathPlanner.h"
 #include "core/ScanResult.h"
+#include "devices/motion/IMotionController.h"
+#include "devices/motion/SerialMotionController.h"
 
 #include <QDateTime>
 #include <QMetaType>
@@ -47,10 +49,12 @@ ScanManager::ScanManager(QObject *parent)
 
     timer_.setSingleShot(true);
     connect(&timer_, &QTimer::timeout, this, [this]() {
-        if (state_ == ScanState::Running && currentIndex_ < points_.size()) {
+        if ((state_ == ScanState::Running || state_ == ScanState::Paused) && currentIndex_ < points_.size()) {
             requestAcquisition(points_.at(currentIndex_));
         }
     });
+    motionPollTimer_.setInterval(150);
+    connect(&motionPollTimer_, &QTimer::timeout, this, &ScanManager::pollMotion);
     connect(&fallbackSpectrum_, &Spectrum::ISpectrumAnalyzer::logMessage, this, &ScanManager::logMessage);
     connect(&fallbackSpectrum_, &Spectrum::ISpectrumAnalyzer::errorOccurred, this, &ScanManager::logMessage);
 }
@@ -58,6 +62,7 @@ ScanManager::ScanManager(QObject *parent)
 ScanManager::~ScanManager()
 {
     timer_.stop();
+    motionPollTimer_.stop();
     shutdownAcquisitionThread(true);
 }
 
@@ -88,6 +93,8 @@ void ScanManager::startScan(const ScanConfig &config)
     points_ = std::move(points);
     currentIndex_ = 0;
     acquisitionInProgress_ = false;
+    motionInProgress_ = false;
+    motionPollTimer_.stop();
 
     fallbackSpectrum_.configure(spectrumConfig_);
     fallbackSpectrum_.connectDevice(QVariantMap{});
@@ -166,6 +173,8 @@ void ScanManager::stopScan()
     }
 
     timer_.stop();
+    motionPollTimer_.stop();
+    motionInProgress_ = false;
     setState(ScanState::Stopping);
     storage_.finishTask();
     setState(ScanState::Stopped);
@@ -193,6 +202,41 @@ void ScanManager::setAcquisitionOptions(const ScanAcquisitionOptions &options)
     acquisitionOptions_.stopOnError = options.stopOnError;
 }
 
+void ScanManager::setMotionController(NFSScanner::Devices::Motion::IMotionController *motionController)
+{
+    if (motionController_ == motionController) {
+        return;
+    }
+
+    if (motionController_) {
+        disconnect(motionController_, nullptr, this, nullptr);
+    }
+
+    motionController_ = motionController;
+    if (!motionController_) {
+        return;
+    }
+
+    connect(motionController_, &NFSScanner::Devices::Motion::IMotionController::positionChanged,
+            this, [this](double x, double y, double z) {
+                motionCurrentX_ = x;
+                motionCurrentY_ = y;
+                motionCurrentZ_ = z;
+            });
+
+    if (auto *serial = qobject_cast<NFSScanner::Devices::Motion::SerialMotionController *>(motionController_)) {
+        connect(serial, &NFSScanner::Devices::Motion::SerialMotionController::statusChanged,
+                this, [this](const QString &status) {
+                    motionStatus_ = status;
+                });
+    }
+}
+
+void ScanManager::setUseRealMotion(bool enabled)
+{
+    useRealMotion_ = enabled;
+}
+
 ScanState ScanManager::state() const
 {
     return state_;
@@ -210,7 +254,7 @@ int ScanManager::totalCount() const
 
 void ScanManager::processNextPoint()
 {
-    if (state_ != ScanState::Running || acquisitionInProgress_) {
+    if (state_ != ScanState::Running || acquisitionInProgress_ || motionInProgress_) {
         return;
     }
 
@@ -220,6 +264,116 @@ void ScanManager::processNextPoint()
     }
 
     const ScanPoint point = points_.at(currentIndex_);
+    if (useRealMotion_) {
+        beginPointMotion(point);
+    } else {
+        startDwellForPoint(point);
+    }
+}
+
+void ScanManager::beginPointMotion(const ScanPoint &point)
+{
+    if (!motionController_ || !motionController_->isConnected()) {
+        const QString message = QStringLiteral("Real motion is enabled, but motion controller is not connected.");
+        timer_.stop();
+        setState(ScanState::Error);
+        emit scanError(message);
+        return;
+    }
+
+    activePoint_ = point;
+    emit logMessage(QStringLiteral("移动到扫描点 %1/%2：X=%3 Y=%4 Z=%5")
+                        .arg(point.index)
+                        .arg(points_.size())
+                        .arg(point.x, 0, 'f', 3)
+                        .arg(point.y, 0, 'f', 3)
+                        .arg(point.z, 0, 'f', 3));
+
+    bool moveOk = false;
+    if (auto *serial = qobject_cast<NFSScanner::Devices::Motion::SerialMotionController *>(motionController_)) {
+        moveOk = serial->moveAbs(point.x, point.y, point.z, config_.feed);
+    } else {
+        moveOk = motionController_->moveTo(point.x, point.y, point.z);
+    }
+
+    if (!moveOk) {
+        const QString message = QStringLiteral("Failed to send motion command for point %1.").arg(point.index);
+        setState(ScanState::Error);
+        emit scanError(message);
+        return;
+    }
+
+    motionInProgress_ = true;
+    motionElapsedTimer_.restart();
+    motionPollTimer_.start();
+}
+
+void ScanManager::pollMotion()
+{
+    if (!motionInProgress_) {
+        motionPollTimer_.stop();
+        return;
+    }
+
+    if (state_ != ScanState::Running && state_ != ScanState::Paused) {
+        motionPollTimer_.stop();
+        motionInProgress_ = false;
+        return;
+    }
+
+    if (auto *serial = qobject_cast<NFSScanner::Devices::Motion::SerialMotionController *>(motionController_)) {
+        serial->queryPosition();
+        const auto position = serial->currentPosition();
+        motionCurrentX_ = position.x;
+        motionCurrentY_ = position.y;
+        motionCurrentZ_ = position.z;
+        motionStatus_ = serial->currentStatus();
+    }
+
+    if (motionTargetReached(activePoint_)) {
+        motionPollTimer_.stop();
+        motionInProgress_ = false;
+        emit logMessage(QStringLiteral("运动到位：X=%1 Y=%2 Z=%3")
+                            .arg(motionCurrentX_, 0, 'f', 3)
+                            .arg(motionCurrentY_, 0, 'f', 3)
+                            .arg(motionCurrentZ_, 0, 'f', 3));
+        startDwellForPoint(activePoint_);
+        return;
+    }
+
+    if (motionElapsedTimer_.elapsed() >= motionTimeoutMs_) {
+        motionPollTimer_.stop();
+        motionInProgress_ = false;
+        const QString message = QStringLiteral("运动超时：target X=%1 Y=%2 Z=%3 current X=%4 Y=%5 Z=%6 status=%7")
+                                    .arg(activePoint_.x, 0, 'f', 3)
+                                    .arg(activePoint_.y, 0, 'f', 3)
+                                    .arg(activePoint_.z, 0, 'f', 3)
+                                    .arg(motionCurrentX_, 0, 'f', 3)
+                                    .arg(motionCurrentY_, 0, 'f', 3)
+                                    .arg(motionCurrentZ_, 0, 'f', 3)
+                                    .arg(motionStatus_);
+        setState(ScanState::Error);
+        emit scanError(message);
+    }
+}
+
+bool ScanManager::motionTargetReached(const ScanPoint &point) const
+{
+    const bool positionOk = std::abs(motionCurrentX_ - point.x) <= motionToleranceMm_
+        && std::abs(motionCurrentY_ - point.y) <= motionToleranceMm_
+        && std::abs(motionCurrentZ_ - point.z) <= motionToleranceMm_;
+    if (!positionOk) {
+        return false;
+    }
+
+    if (qobject_cast<NFSScanner::Devices::Motion::SerialMotionController *>(motionController_)) {
+        return motionStatus_.contains(QStringLiteral("Idle"), Qt::CaseInsensitive);
+    }
+    return true;
+}
+
+void ScanManager::startDwellForPoint(const ScanPoint &point)
+{
     const int total = points_.size();
     const int intervalMs = std::max(50, config_.dwellMs);
     const int remaining = std::max(0, total - currentIndex_);
@@ -239,7 +393,7 @@ void ScanManager::processNextPoint()
 
 void ScanManager::requestAcquisition(const ScanPoint &point)
 {
-    if (state_ != ScanState::Running || !acquisitionWorker_) {
+    if ((state_ != ScanState::Running && state_ != ScanState::Paused) || !acquisitionWorker_) {
         return;
     }
 
@@ -303,6 +457,7 @@ void ScanManager::onAcquisitionFinished(const Spectrum::SpectrumAcquisitionResul
     scanResult.traceId = result.trace.traceId;
     scanResult.freqs = result.trace.freqs;
     scanResult.values = result.trace.values;
+    scanResult.trace = result.trace;
 
     if (!storage_.appendPoint(point, scanResult.timestamp) || !storage_.appendTrace(scanResult)) {
         timer_.stop();
@@ -395,6 +550,8 @@ void ScanManager::shutdownAcquisitionThread(bool waitForFinish)
 void ScanManager::finishScan()
 {
     timer_.stop();
+    motionPollTimer_.stop();
+    motionInProgress_ = false;
     if (!storage_.finishTask()) {
         setState(ScanState::Error);
         shutdownAcquisitionThread(false);
