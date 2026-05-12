@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <cmath>
@@ -15,18 +16,17 @@ MockSpectrumAnalyzer::MockSpectrumAnalyzer(QObject *parent)
 
 QString MockSpectrumAnalyzer::name() const
 {
-    return QStringLiteral("Mock Spectrum Analyzer");
+    return QStringLiteral("Mock Spectrum");
 }
 
-bool MockSpectrumAnalyzer::connectDevice()
+bool MockSpectrumAnalyzer::connectDevice(const QVariantMap &options)
 {
-    if (connected_) {
-        return true;
-    }
+    Q_UNUSED(options)
 
     connected_ = true;
-    emit connectionChanged(true);
-    emit centerFrequencyChanged(centerFrequencyMhz_);
+    lastError_.clear();
+    emit connectedChanged(true);
+    emit logMessage(QStringLiteral("Mock Spectrum 已连接。"));
     return true;
 }
 
@@ -37,7 +37,8 @@ void MockSpectrumAnalyzer::disconnectDevice()
     }
 
     connected_ = false;
-    emit connectionChanged(false);
+    emit connectedChanged(false);
+    emit logMessage(QStringLiteral("Mock Spectrum 已断开。"));
 }
 
 bool MockSpectrumAnalyzer::isConnected() const
@@ -45,25 +46,28 @@ bool MockSpectrumAnalyzer::isConnected() const
     return connected_;
 }
 
-void MockSpectrumAnalyzer::setCenterFrequency(double mhz)
+bool MockSpectrumAnalyzer::configure(const SpectrumConfig &config)
 {
-    centerFrequencyMhz_ = mhz;
-    emit centerFrequencyChanged(centerFrequencyMhz_);
-}
-
-double MockSpectrumAnalyzer::centerFrequencyMhz() const
-{
-    return centerFrequencyMhz_;
-}
-
-double MockSpectrumAnalyzer::readPowerDbm()
-{
-    if (!connected_) {
-        emit errorOccurred(QStringLiteral("频谱仪未连接，无法读取功率。"));
-        return -120.0;
+    config_ = config;
+    if (config_.sweepPoints < 2) {
+        config_.sweepPoints = 2;
     }
+    if (config_.stopFreqHz <= config_.startFreqHz) {
+        config_.stopFreqHz = config_.startFreqHz + 1.0;
+    }
+    config_.centerFreqHz = (config_.startFreqHz + config_.stopFreqHz) * 0.5;
+    config_.spanHz = config_.stopFreqHz - config_.startFreqHz;
+    lastError_.clear();
+    emit logMessage(QStringLiteral("Mock Spectrum 配置完成：%1 Hz ~ %2 Hz，%3 点。")
+                        .arg(config_.startFreqHz, 0, 'f', 0)
+                        .arg(config_.stopFreqHz, 0, 'f', 0)
+                        .arg(config_.sweepPoints));
+    return true;
+}
 
-    return -72.0 + QRandomGenerator::global()->generateDouble() * 34.0;
+QString MockSpectrumAnalyzer::queryIdn()
+{
+    return QStringLiteral("Mock Spectrum Analyzer v1.0");
 }
 
 SpectrumTrace MockSpectrumAnalyzer::singleSweep(int pointIndex, double x, double y, double z)
@@ -71,17 +75,19 @@ SpectrumTrace MockSpectrumAnalyzer::singleSweep(int pointIndex, double x, double
     Q_UNUSED(z)
 
     SpectrumTrace trace;
+    trace.traceId = config_.traceId.trimmed().isEmpty() ? QStringLiteral("Trc1_S21") : config_.traceId;
     trace.timestamp = QDateTime::currentDateTime();
+    trace.source = name();
 
     if (!connected_) {
-        lastError_ = QStringLiteral("频谱仪未连接，无法执行单次扫描。");
+        lastError_ = QStringLiteral("Mock Spectrum 未连接，无法执行单次扫描。");
         emit errorOccurred(lastError_);
         return trace;
     }
 
-    constexpr int pointCount = 201;
-    constexpr double startHz = 1'000'000.0;
-    constexpr double stopHz = 1'000'000'000.0;
+    const int pointCount = std::max(2, config_.sweepPoints);
+    const double startHz = config_.startFreqHz;
+    const double stopHz = std::max(config_.stopFreqHz, config_.startFreqHz + 1.0);
     constexpr double pi2 = 6.283185307179586;
     constexpr double centerX = 5.0;
     constexpr double centerY = 5.0;

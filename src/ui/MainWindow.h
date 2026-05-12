@@ -1,6 +1,8 @@
 #pragma once
 
 #include "analysis/FrequencyData.h"
+#include "devices/spectrum/SpectrumConfig.h"
+#include "devices/spectrum/SpectrumTrace.h"
 
 #include <QMainWindow>
 #include <QString>
@@ -28,6 +30,10 @@ class ScanManager;
 
 namespace NFSScanner::Devices::Motion {
 class SerialMotionController;
+}
+
+namespace NFSScanner::Devices::Spectrum {
+class ISpectrumAnalyzer;
 }
 
 namespace NFSScanner::UI {
@@ -81,6 +87,15 @@ private:
     void showHeatmap();
     void updateColorbarDisplay();
     void updateOpacityLabel(int percent);
+    void clearCurrentAnalyzer();
+    void connectSpectrumAnalyzer();
+    void disconnectSpectrumAnalyzer();
+    void querySpectrumIdn();
+    void applySpectrumConfig();
+    void runSingleSpectrumSweep();
+    void updateAnalyzerButtons(bool connected);
+    NFSScanner::Devices::Spectrum::SpectrumConfig readSpectrumConfig() const;
+    double readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) const;
     QString selectedDisplayMode() const;
     QString formatFrequency(double hz) const;
     QString resolveTraceCsvPath() const;
@@ -164,11 +179,29 @@ private:
     QLabel *colorbarLabel_ = nullptr;
     QLabel *colorbarMinLabel_ = nullptr;
     QLabel *colorbarMaxLabel_ = nullptr;
+    QComboBox *analyzerTypeCombo_ = nullptr;
+    QLineEdit *analyzerHostEdit_ = nullptr;
+    QLineEdit *analyzerPortEdit_ = nullptr;
+    QPushButton *analyzerConnectButton_ = nullptr;
+    QPushButton *analyzerDisconnectButton_ = nullptr;
+    QPushButton *queryIdnButton_ = nullptr;
+    QPushButton *applyAnalyzerConfigButton_ = nullptr;
+    QPushButton *singleSweepButton_ = nullptr;
+    QLineEdit *startFreqEdit_ = nullptr;
+    QLineEdit *stopFreqEdit_ = nullptr;
+    QLineEdit *rbwEdit_ = nullptr;
+    QLineEdit *sweepPointsEdit_ = nullptr;
+    QComboBox *startFreqUnitCombo_ = nullptr;
+    QComboBox *stopFreqUnitCombo_ = nullptr;
+    QComboBox *rbwUnitCombo_ = nullptr;
     NFSScanner::Analysis::FrequencyData frequencyData_;
     QImage currentHeatmapImage_;
     QImage currentColorbarImage_;
     double currentVmin_ = 0.0;
     double currentVmax_ = 1.0;
+    NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *currentAnalyzer_ = nullptr;
+    NFSScanner::Devices::Spectrum::SpectrumConfig currentSpectrumConfig_;
+    NFSScanner::Devices::Spectrum::SpectrumTrace lastSpectrumTrace_;
 };
 
 } // namespace NFSScanner::UI

@@ -6,6 +6,8 @@
 #include "analysis/LutManager.h"
 #include "core/ScanManager.h"
 #include "devices/motion/SerialMotionController.h"
+#include "devices/spectrum/ISpectrumAnalyzer.h"
+#include "devices/spectrum/SpectrumAnalyzerFactory.h"
 #include "ui/HeatmapDialog.h"
 #include "ui/HeatmapView.h"
 
@@ -45,6 +47,7 @@
 #include <QTime>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVariantMap>
 #include <QWidget>
 
 #include <algorithm>
@@ -136,6 +139,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    clearCurrentAnalyzer();
     if (motionController_ && motionController_->isOpen()) {
         motionController_->closePort();
     }
@@ -516,6 +520,36 @@ QGroupBox *MainWindow::createInstrumentGroup()
     auto *group = new QGroupBox(QStringLiteral("仪表区域"), this);
     auto *layout = new QVBoxLayout(group);
     layout->setContentsMargins(10, 12, 10, 10);
+    layout->setSpacing(8);
+
+    auto *connectGrid = new QGridLayout;
+    connectGrid->setHorizontalSpacing(6);
+    connectGrid->setVerticalSpacing(6);
+
+    analyzerTypeCombo_ = new QComboBox(group);
+    analyzerTypeCombo_->addItems(Devices::Spectrum::SpectrumAnalyzerFactory::availableAnalyzers());
+    analyzerHostEdit_ = new QLineEdit(QStringLiteral("192.168.0.10"), group);
+    analyzerPortEdit_ = createIntegerEdit(QStringLiteral("5025"), group);
+    analyzerConnectButton_ = new QPushButton(QStringLiteral("连接"), group);
+    analyzerDisconnectButton_ = new QPushButton(QStringLiteral("断开"), group);
+    queryIdnButton_ = new QPushButton(QStringLiteral("查询 IDN"), group);
+    applyAnalyzerConfigButton_ = new QPushButton(QStringLiteral("应用仪表配置"), group);
+    singleSweepButton_ = new QPushButton(QStringLiteral("单次扫描"), group);
+
+    connectGrid->addWidget(new QLabel(QStringLiteral("频谱仪"), group), 0, 0);
+    connectGrid->addWidget(analyzerTypeCombo_, 0, 1);
+    connectGrid->addWidget(new QLabel(QStringLiteral("Host"), group), 0, 2);
+    connectGrid->addWidget(analyzerHostEdit_, 0, 3);
+    connectGrid->addWidget(new QLabel(QStringLiteral("Port"), group), 0, 4);
+    connectGrid->addWidget(analyzerPortEdit_, 0, 5);
+    connectGrid->addWidget(analyzerConnectButton_, 0, 6);
+    connectGrid->addWidget(analyzerDisconnectButton_, 0, 7);
+    connectGrid->addWidget(queryIdnButton_, 1, 0, 1, 2);
+    connectGrid->addWidget(applyAnalyzerConfigButton_, 1, 2, 1, 3);
+    connectGrid->addWidget(singleSweepButton_, 1, 5, 1, 3);
+    connectGrid->setColumnStretch(1, 1);
+    connectGrid->setColumnStretch(3, 1);
+    layout->addLayout(connectGrid);
 
     auto *tabs = new QTabWidget(group);
     tabs->setDocumentMode(false);
@@ -552,6 +586,17 @@ QGroupBox *MainWindow::createInstrumentGroup()
         grid->addWidget(unitWidget, row, columnOffset + 2);
         grid->addWidget(queryButton, row, columnOffset + 3);
 
+        if (labelText == QStringLiteral("起始频率")) {
+            startFreqEdit_ = edit;
+            startFreqUnitCombo_ = qobject_cast<QComboBox *>(unitWidget);
+        } else if (labelText == QStringLiteral("终止频率")) {
+            stopFreqEdit_ = edit;
+            stopFreqUnitCombo_ = qobject_cast<QComboBox *>(unitWidget);
+        } else if (labelText == QStringLiteral("RBW")) {
+            rbwEdit_ = edit;
+            rbwUnitCombo_ = qobject_cast<QComboBox *>(unitWidget);
+        }
+
         connect(queryButton, &QPushButton::clicked, this, [this, labelText, edit, unitWidget]() {
             QString unit;
             if (auto *combo = qobject_cast<QComboBox *>(unitWidget)) {
@@ -565,16 +610,17 @@ QGroupBox *MainWindow::createInstrumentGroup()
 
     const QStringList freqUnits{QStringLiteral("MHz"), QStringLiteral("GHz"), QStringLiteral("Hz")};
     const QStringList rbwUnits{QStringLiteral("kHz"), QStringLiteral("MHz"), QStringLiteral("Hz")};
-    addParameter(0, 0, QStringLiteral("起始频率"), QStringLiteral("1000.00"), freqUnits);
-    addParameter(1, 0, QStringLiteral("终止频率"), QStringLiteral("3000.00"), freqUnits);
-    addParameter(2, 0, QStringLiteral("RBW"), QStringLiteral("10.00"), rbwUnits);
+    addParameter(0, 0, QStringLiteral("起始频率"), QStringLiteral("1.00"), freqUnits);
+    addParameter(1, 0, QStringLiteral("终止频率"), QStringLiteral("1000.00"), freqUnits);
+    addParameter(2, 0, QStringLiteral("RBW"), QStringLiteral("100.00"), rbwUnits);
     addParameter(3, 0, QStringLiteral("Scale"), QStringLiteral("10.00"), QStringList{}, QStringLiteral("dB/div"));
 
-    addParameter(0, 4, QStringLiteral("中心频率"), QStringLiteral("2000.00"), freqUnits);
-    addParameter(1, 4, QStringLiteral("Span"), QStringLiteral("2000.00"), freqUnits);
+    addParameter(0, 4, QStringLiteral("中心频率"), QStringLiteral("500.00"), freqUnits);
+    addParameter(1, 4, QStringLiteral("Span"), QStringLiteral("999.00"), freqUnits);
 
     auto *pointsLabel = new QLabel(QStringLiteral("扫描点数"), znaPage);
-    auto *pointsEdit = createIntegerEdit(QStringLiteral("1001"), znaPage);
+    auto *pointsEdit = createIntegerEdit(QStringLiteral("201"), znaPage);
+    sweepPointsEdit_ = pointsEdit;
     auto *pointsQueryButton = new QPushButton(QStringLiteral("查询"), znaPage);
     grid->addWidget(pointsLabel, 2, 4);
     grid->addWidget(pointsEdit, 2, 5, 1, 2);
@@ -619,6 +665,12 @@ QGroupBox *MainWindow::createInstrumentGroup()
     tabs->setCurrentIndex(0);
 
     layout->addWidget(tabs);
+    connect(analyzerConnectButton_, &QPushButton::clicked, this, &MainWindow::connectSpectrumAnalyzer);
+    connect(analyzerDisconnectButton_, &QPushButton::clicked, this, &MainWindow::disconnectSpectrumAnalyzer);
+    connect(queryIdnButton_, &QPushButton::clicked, this, &MainWindow::querySpectrumIdn);
+    connect(applyAnalyzerConfigButton_, &QPushButton::clicked, this, &MainWindow::applySpectrumConfig);
+    connect(singleSweepButton_, &QPushButton::clicked, this, &MainWindow::runSingleSpectrumSweep);
+    updateAnalyzerButtons(false);
     return group;
 }
 
@@ -1129,6 +1181,214 @@ void MainWindow::updateOpacityLabel(int percent)
     }
 }
 
+void MainWindow::clearCurrentAnalyzer()
+{
+    if (!currentAnalyzer_) {
+        return;
+    }
+
+    if (scanManager_) {
+        scanManager_->setSpectrumAnalyzer(nullptr);
+    }
+    if (currentAnalyzer_->isConnected()) {
+        currentAnalyzer_->disconnectDevice();
+    }
+    currentAnalyzer_->deleteLater();
+    currentAnalyzer_ = nullptr;
+    updateAnalyzerButtons(false);
+}
+
+void MainWindow::connectSpectrumAnalyzer()
+{
+    const QString analyzerName = analyzerTypeCombo_ ? analyzerTypeCombo_->currentText() : QStringLiteral("Mock Spectrum");
+    clearCurrentAnalyzer();
+    currentAnalyzer_ = Devices::Spectrum::SpectrumAnalyzerFactory::create(analyzerName, this);
+
+    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::logMessage,
+            this, &MainWindow::appendLog);
+    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::errorOccurred,
+            this, [this](const QString &message) {
+                appendLog(QStringLiteral("频谱仪错误：%1").arg(message));
+            });
+    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::connectedChanged,
+            this, [this](bool connected) {
+                updateAnalyzerButtons(connected);
+                if (deviceDiscoveryLabel_) {
+                    deviceDiscoveryLabel_->setText(connected
+                                                       ? QStringLiteral("发现 %1").arg(currentAnalyzer_ ? currentAnalyzer_->name() : QStringLiteral("仪表"))
+                                                       : QStringLiteral("未连接频谱仪"));
+                }
+            });
+
+    bool portOk = false;
+    const int port = analyzerPortEdit_ ? analyzerPortEdit_->text().toInt(&portOk) : 5025;
+    QVariantMap options;
+    options.insert(QStringLiteral("host"), analyzerHostEdit_ ? analyzerHostEdit_->text().trimmed() : QString());
+    options.insert(QStringLiteral("port"), portOk ? port : 5025);
+
+    if (!currentAnalyzer_->connectDevice(options)) {
+        const QString message = currentAnalyzer_->lastError().isEmpty()
+            ? QStringLiteral("频谱仪连接失败。")
+            : currentAnalyzer_->lastError();
+        appendLog(QStringLiteral("频谱仪连接失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("频谱仪连接失败"), message);
+        updateAnalyzerButtons(false);
+        return;
+    }
+
+    currentSpectrumConfig_ = readSpectrumConfig();
+    appendLog(QStringLiteral("频谱仪已连接：%1").arg(currentAnalyzer_->name()));
+    updateAnalyzerButtons(true);
+}
+
+void MainWindow::disconnectSpectrumAnalyzer()
+{
+    if (!currentAnalyzer_) {
+        appendLog(QStringLiteral("当前没有已创建的频谱仪连接。"));
+        updateAnalyzerButtons(false);
+        return;
+    }
+
+    const QString name = currentAnalyzer_->name();
+    currentAnalyzer_->disconnectDevice();
+    appendLog(QStringLiteral("频谱仪已断开：%1").arg(name));
+    updateAnalyzerButtons(false);
+}
+
+void MainWindow::querySpectrumIdn()
+{
+    if (!currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
+        const QString message = QStringLiteral("请先连接频谱仪。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("频谱仪未连接"), message);
+        return;
+    }
+
+    const QString idn = currentAnalyzer_->queryIdn();
+    if (idn.isEmpty()) {
+        const QString message = currentAnalyzer_->lastError().isEmpty()
+            ? QStringLiteral("IDN 查询无返回。")
+            : currentAnalyzer_->lastError();
+        appendLog(QStringLiteral("IDN 查询失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("IDN 查询失败"), message);
+        return;
+    }
+
+    appendLog(QStringLiteral("频谱仪 IDN：%1").arg(idn));
+}
+
+void MainWindow::applySpectrumConfig()
+{
+    if (!currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
+        const QString message = QStringLiteral("请先连接仪表。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("频谱仪未连接"), message);
+        return;
+    }
+
+    currentSpectrumConfig_ = readSpectrumConfig();
+    if (!currentAnalyzer_->configure(currentSpectrumConfig_)) {
+        const QString message = currentAnalyzer_->lastError().isEmpty()
+            ? QStringLiteral("应用仪表配置失败。")
+            : currentAnalyzer_->lastError();
+        appendLog(QStringLiteral("应用仪表配置失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("配置失败"), message);
+        return;
+    }
+
+    appendLog(QStringLiteral("应用仪表配置成功：%1 Hz ~ %2 Hz，RBW=%3 Hz，点数=%4")
+                  .arg(currentSpectrumConfig_.startFreqHz, 0, 'f', 0)
+                  .arg(currentSpectrumConfig_.stopFreqHz, 0, 'f', 0)
+                  .arg(currentSpectrumConfig_.rbwHz, 0, 'f', 0)
+                  .arg(currentSpectrumConfig_.sweepPoints));
+}
+
+void MainWindow::runSingleSpectrumSweep()
+{
+    if (!currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
+        const QString message = QStringLiteral("请先连接仪表。");
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("频谱仪未连接"), message);
+        return;
+    }
+
+    lastSpectrumTrace_ = currentAnalyzer_->singleSweep(0, currentX_, currentY_, currentZ_);
+    if (lastSpectrumTrace_.freqs.isEmpty()
+        || lastSpectrumTrace_.values.isEmpty()
+        || lastSpectrumTrace_.freqs.size() != lastSpectrumTrace_.values.size()) {
+        const QString message = currentAnalyzer_->lastError().isEmpty()
+            ? QStringLiteral("单次扫描未返回有效数据。")
+            : currentAnalyzer_->lastError();
+        appendLog(QStringLiteral("单次扫描失败：%1").arg(message));
+        QMessageBox::warning(this, QStringLiteral("单次扫描失败"), message);
+        return;
+    }
+
+    const auto [minIt, maxIt] = std::minmax_element(lastSpectrumTrace_.values.cbegin(), lastSpectrumTrace_.values.cend());
+    appendLog(QStringLiteral("单次扫描完成：source=%1，trace=%2，点数=%3，范围=%4 ~ %5")
+                  .arg(lastSpectrumTrace_.source.isEmpty() ? currentAnalyzer_->name() : lastSpectrumTrace_.source,
+                       lastSpectrumTrace_.traceId)
+                  .arg(lastSpectrumTrace_.values.size())
+                  .arg(*minIt, 0, 'g', 6)
+                  .arg(*maxIt, 0, 'g', 6));
+}
+
+void MainWindow::updateAnalyzerButtons(bool connected)
+{
+    if (analyzerConnectButton_) {
+        analyzerConnectButton_->setEnabled(!connected);
+    }
+    if (analyzerDisconnectButton_) {
+        analyzerDisconnectButton_->setEnabled(connected);
+    }
+    if (queryIdnButton_) {
+        queryIdnButton_->setEnabled(connected);
+    }
+    if (applyAnalyzerConfigButton_) {
+        applyAnalyzerConfigButton_->setEnabled(connected);
+    }
+    if (singleSweepButton_) {
+        singleSweepButton_->setEnabled(connected);
+    }
+}
+
+NFSScanner::Devices::Spectrum::SpectrumConfig MainWindow::readSpectrumConfig() const
+{
+    NFSScanner::Devices::Spectrum::SpectrumConfig config;
+    config.startFreqHz = readFrequencyWithUnit(startFreqEdit_, startFreqUnitCombo_);
+    config.stopFreqHz = readFrequencyWithUnit(stopFreqEdit_, stopFreqUnitCombo_);
+    if (config.stopFreqHz <= config.startFreqHz) {
+        config.stopFreqHz = config.startFreqHz + 1.0;
+    }
+    config.centerFreqHz = (config.startFreqHz + config.stopFreqHz) * 0.5;
+    config.spanHz = config.stopFreqHz - config.startFreqHz;
+    config.rbwHz = readFrequencyWithUnit(rbwEdit_, rbwUnitCombo_);
+    config.vbwHz = config.rbwHz;
+
+    bool pointsOk = false;
+    const int points = sweepPointsEdit_ ? sweepPointsEdit_->text().toInt(&pointsOk) : 201;
+    config.sweepPoints = pointsOk ? std::clamp(points, 2, 1000000) : 201;
+    config.sweepTimeSec = std::max(0.05, static_cast<double>(dwellTimeSpinBox_ ? dwellTimeSpinBox_->value() : 100) / 1000.0);
+    config.traceId = QStringLiteral("Trc1_S21");
+    return config;
+}
+
+double MainWindow::readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) const
+{
+    bool ok = false;
+    const double value = edit ? edit->text().trimmed().toDouble(&ok) : 0.0;
+    const QString unit = unitCombo ? unitCombo->currentText().trimmed() : QStringLiteral("Hz");
+    double factor = 1.0;
+    if (unit == QStringLiteral("GHz")) {
+        factor = 1e9;
+    } else if (unit == QStringLiteral("MHz")) {
+        factor = 1e6;
+    } else if (unit == QStringLiteral("kHz")) {
+        factor = 1e3;
+    }
+    return ok ? value * factor : 0.0;
+}
+
 QString MainWindow::selectedDisplayMode() const
 {
     if (!displayModeCombo_) {
@@ -1439,6 +1699,9 @@ void MainWindow::startScan()
     remainingText_ = QStringLiteral("--");
     estimatedFinishText_ = QStringLiteral("--");
     updateScanProgress(0, 1);
+    currentSpectrumConfig_ = readSpectrumConfig();
+    scanManager_->setSpectrumConfig(currentSpectrumConfig_);
+    scanManager_->setSpectrumAnalyzer(currentAnalyzer_ && currentAnalyzer_->isConnected() ? currentAnalyzer_ : nullptr);
     scanManager_->startScan(config);
     updateActionButtons();
 }

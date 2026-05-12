@@ -4,6 +4,7 @@
 #include "core/ScanPathPlanner.h"
 
 #include <QDateTime>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +41,10 @@ ScanManager::ScanManager(QObject *parent)
 {
     timer_.setSingleShot(false);
     connect(&timer_, &QTimer::timeout, this, &ScanManager::advanceScan);
+    connect(&fallbackSpectrum_, &NFSScanner::Devices::Spectrum::ISpectrumAnalyzer::logMessage,
+            this, &ScanManager::logMessage);
+    connect(&fallbackSpectrum_, &NFSScanner::Devices::Spectrum::ISpectrumAnalyzer::errorOccurred,
+            this, &ScanManager::logMessage);
 }
 
 ScanManager::~ScanManager()
@@ -74,7 +79,19 @@ void ScanManager::startScan(const ScanConfig &config)
     points_ = std::move(points);
     currentIndex_ = 0;
 
-    mockSpectrum_.connectDevice();
+    fallbackSpectrum_.configure(spectrumConfig_);
+    fallbackSpectrum_.connectDevice(QVariantMap{});
+
+    if (analyzer_ && analyzer_->isConnected() && !analyzer_->configure(spectrumConfig_)) {
+        const QString message = QStringLiteral("配置频谱仪失败：%1").arg(analyzer_->lastError());
+        timer_.stop();
+        points_.clear();
+        currentIndex_ = 0;
+        setState(ScanState::Error);
+        emit scanError(message);
+        return;
+    }
+
     if (!storage_.beginTask(config_, points_.size())) {
         const QString message = QStringLiteral("创建任务目录失败：%1").arg(storage_.lastError());
         timer_.stop();
@@ -151,6 +168,16 @@ int ScanManager::totalCount() const
     return points_.size();
 }
 
+void ScanManager::setSpectrumAnalyzer(NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer)
+{
+    analyzer_ = analyzer;
+}
+
+void ScanManager::setSpectrumConfig(const NFSScanner::Devices::Spectrum::SpectrumConfig &config)
+{
+    spectrumConfig_ = config;
+}
+
 void ScanManager::advanceScan()
 {
     if (state_ != ScanState::Running) {
@@ -171,14 +198,24 @@ void ScanManager::advanceScan()
 
     const ScanPoint point = points_.at(currentIndex_);
     const QDateTime timestamp = QDateTime::currentDateTime();
-    const NFSScanner::Devices::Spectrum::SpectrumTrace trace = mockSpectrum_.singleSweep(point.index, point.x, point.y, point.z);
+    NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *activeAnalyzer =
+        analyzer_ && analyzer_->isConnected() ? analyzer_ : static_cast<NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *>(&fallbackSpectrum_);
+    const NFSScanner::Devices::Spectrum::SpectrumTrace trace =
+        activeAnalyzer->singleSweep(point.index, point.x, point.y, point.z);
+
+    if (trace.freqs.isEmpty() || trace.values.isEmpty() || trace.freqs.size() != trace.values.size()) {
+        timer_.stop();
+        setState(ScanState::Error);
+        emit scanError(QStringLiteral("频谱采集失败：%1").arg(activeAnalyzer->lastError()));
+        return;
+    }
 
     ScanResult result;
     result.index = point.index;
     result.x = point.x;
     result.y = point.y;
     result.z = point.z;
-    result.timestamp = timestamp;
+    result.timestamp = trace.timestamp.isValid() ? trace.timestamp : timestamp;
     result.traceId = trace.traceId;
     result.freqs = trace.freqs;
     result.values = trace.values;

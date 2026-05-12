@@ -12,6 +12,7 @@ struct SpectrumTrace
     QVector<double> freqs;
     QVector<double> values;
     QDateTime timestamp;
+    QString source;
 };
 
 } // namespace NFSScanner::Devices::Spectrum

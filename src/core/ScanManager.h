@@ -2,7 +2,9 @@
 
 #include "core/ScanConfig.h"
 #include "core/ScanPoint.h"
+#include "devices/spectrum/ISpectrumAnalyzer.h"
 #include "devices/spectrum/MockSpectrumAnalyzer.h"
+#include "devices/spectrum/SpectrumConfig.h"
 #include "storage/TaskStorage.h"
 
 #include <QObject>
@@ -37,6 +39,8 @@ public:
     void pauseScan();
     void resumeScan();
     void stopScan();
+    void setSpectrumAnalyzer(NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer);
+    void setSpectrumConfig(const NFSScanner::Devices::Spectrum::SpectrumConfig &config);
 
     ScanState state() const;
     int currentIndex() const;
@@ -59,7 +63,9 @@ private:
     ScanConfig config_;
     QVector<ScanPoint> points_;
     NFSScanner::Storage::TaskStorage storage_;
-    NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer mockSpectrum_;
+    NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer_ = nullptr;
+    NFSScanner::Devices::Spectrum::SpectrumConfig spectrumConfig_;
+    NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer fallbackSpectrum_;
     QTimer timer_;
     ScanState state_ = ScanState::Idle;
     int currentIndex_ = 0;

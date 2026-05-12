@@ -1,15 +1,16 @@
 #pragma once
 
 #include "devices/spectrum/ISpectrumAnalyzer.h"
+#include "devices/spectrum/ScpiTcpClient.h"
 
 namespace NFSScanner::Devices::Spectrum {
 
-class MockSpectrumAnalyzer final : public ISpectrumAnalyzer
+class Zna67SpectrumAnalyzer final : public ISpectrumAnalyzer
 {
     Q_OBJECT
 
 public:
-    explicit MockSpectrumAnalyzer(QObject *parent = nullptr);
+    explicit Zna67SpectrumAnalyzer(QObject *parent = nullptr);
 
     QString name() const override;
     bool connectDevice(const QVariantMap &options) override;
@@ -21,7 +22,11 @@ public:
     QString lastError() const override;
 
 private:
-    bool connected_ = true;
+    QVector<double> parseAsciiNumbers(const QByteArray &payload) const;
+    QVector<double> buildFrequencies(int pointCount) const;
+    void setError(const QString &message);
+
+    ScpiTcpClient client_;
     SpectrumConfig config_;
     QString lastError_;
 };
