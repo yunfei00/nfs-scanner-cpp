@@ -109,6 +109,8 @@ set(CORE_SOURCES
 set(UI_SOURCES
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
+    src/ui/UiFormUtils.h
+    src/ui/UiFormUtils.cpp
     src/ui/HeatmapDialog.h
     src/ui/HeatmapDialog.cpp
     src/ui/HeatmapView.h
