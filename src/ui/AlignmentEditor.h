@@ -5,6 +5,7 @@
 
 #include <QWidget>
 
+class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
@@ -19,24 +20,34 @@ public:
     explicit AlignmentEditor(QWidget *parent = nullptr);
 
     NFSScanner::Core::AlignmentManager *manager();
+    bool loadAlignmentFile(const QString &path);
+    bool saveAlignmentFile(const QString &path);
+
+public slots:
+    void captureMockBackground(const QImage &frame, const QString &savedPath);
 
 signals:
     void configApplied(const NFSScanner::Core::AlignmentConfig &config);
+    void mockCaptureRequested();
 
 private:
     void syncFromUi();
     void syncToUi();
     void loadBackgroundImage();
+    void saveAlignmentDialog();
+    void loadAlignmentDialog();
 
     NFSScanner::Core::AlignmentManager manager_;
     QDoubleSpinBox *worldXMin_ = nullptr;
     QDoubleSpinBox *worldXMax_ = nullptr;
     QDoubleSpinBox *worldYMin_ = nullptr;
     QDoubleSpinBox *worldYMax_ = nullptr;
+    QDoubleSpinBox *worldZ_ = nullptr;
     QDoubleSpinBox *pixelXMin_ = nullptr;
     QDoubleSpinBox *pixelXMax_ = nullptr;
     QDoubleSpinBox *pixelYMin_ = nullptr;
     QDoubleSpinBox *pixelYMax_ = nullptr;
+    QCheckBox *fixedAspectCheck_ = nullptr;
     QLabel *backgroundLabel_ = nullptr;
 };
 
