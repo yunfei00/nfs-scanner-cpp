@@ -3,8 +3,11 @@
 #include "core/ScanPathPlanner.h"
 #include "analysis/LutManager.h"
 #include "project/ProjectManager.h"
+#include "report/ReportData.h"
+#include "report/ReportGenerator.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -79,6 +82,60 @@ void testAlignmentMapping()
     check(qAbs(world.y() - 50.0) < 0.01, "pixelToWorld y max");
 }
 
+void testAlignmentJsonRoundTrip()
+{
+    QTemporaryDir temp;
+    check(temp.isValid(), "alignment temp dir valid");
+
+    NFSScanner::Core::AlignmentManager manager;
+    NFSScanner::Core::AlignmentConfig config;
+    config.enabled = true;
+    config.worldXMin = 10.0;
+    config.worldXMax = 110.0;
+    config.worldYMin = 5.0;
+    config.worldYMax = 55.0;
+    config.pixelXMin = 0.0;
+    config.pixelXMax = 400.0;
+    config.pixelYMin = 0.0;
+    config.pixelYMax = 200.0;
+    config.fixedAspectRatio = true;
+    manager.setConfig(config);
+
+    const QString path = QDir(temp.path()).filePath(QStringLiteral("alignment.json"));
+    check(manager.saveToFile(path), "alignment json save");
+    check(QFile::exists(path), "alignment json file exists");
+
+    NFSScanner::Core::AlignmentManager loaded;
+    check(loaded.loadFromFile(path), "alignment json load");
+    check(qAbs(loaded.config().worldXMax - 110.0) < 0.01, "alignment json world x max");
+    check(loaded.config().fixedAspectRatio, "alignment json fixed aspect ratio");
+}
+
+void testReportExport()
+{
+    QTemporaryDir temp;
+    check(temp.isValid(), "report temp dir valid");
+
+    NFSScanner::Report::ReportData data;
+    data.projectName = QStringLiteral("SelfCheckProject");
+    data.operatorName = QStringLiteral("SelfCheck");
+    data.scanTaskDir = temp.path();
+    data.scanTime = QDateTime::currentDateTimeUtc();
+    data.traceId = QStringLiteral("S11");
+    data.lutName = QStringLiteral("turbo");
+    data.vmin = -40.0;
+    data.vmax = 0.0;
+    data.notes = QStringLiteral("mock report from self_check");
+
+    NFSScanner::Report::ReportGenerator generator;
+    const QString mdPath = QDir(temp.path()).filePath(QStringLiteral("report.md"));
+    const QString htmlPath = QDir(temp.path()).filePath(QStringLiteral("report.html"));
+    check(generator.exportMarkdown(data, mdPath), "report markdown export");
+    check(QFile::exists(mdPath), "report markdown file exists");
+    check(generator.exportHtml(data, htmlPath), "report html export");
+    check(QFile::exists(htmlPath), "report html file exists");
+}
+
 void testLutManager()
 {
     const QStringList luts = NFSScanner::Analysis::LutManager::availableLuts();
@@ -111,8 +168,10 @@ int main(int argc, char *argv[])
     testScanPathSnake();
     testScanPathInvalidStep();
     testAlignmentMapping();
+    testAlignmentJsonRoundTrip();
     testLutManager();
     testProjectCreate();
+    testReportExport();
 
     if (gFailures == 0) {
         std::printf("All self-check tests passed.\n");
