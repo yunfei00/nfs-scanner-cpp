@@ -1,6 +1,9 @@
 #pragma once
 
-#include "analysis/FrequencyData.h"
+#include "ui/AnalysisController.h"
+#include "core/AlignmentManager.h"
+#include "core/ScanConfig.h"
+#include "core/ScanPoint.h"
 #include "devices/spectrum/SpectrumConfig.h"
 #include "devices/spectrum/SpectrumTrace.h"
 
@@ -10,22 +13,35 @@
 
 class QCheckBox;
 class QComboBox;
+class QDockWidget;
 class QDoubleSpinBox;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
 class QSlider;
+class QStackedWidget;
 class QStatusBar;
 class QSpinBox;
 class QTableWidget;
 class QTimer;
+class QToolBar;
 class QWidget;
 
 namespace NFSScanner::Core {
+class DeviceManager;
 class ScanManager;
+}
+
+namespace NFSScanner::Project {
+class ProjectManager;
+}
+
+namespace NFSScanner::License {
+class LicenseManager;
 }
 
 namespace NFSScanner::Devices::Motion {
@@ -39,6 +55,13 @@ class ISpectrumAnalyzer;
 namespace NFSScanner::UI {
 
 class HeatmapView;
+class ScanPage;
+class DevicePage;
+class AnalysisPage;
+class ReportPage;
+class AnalysisController;
+class DeviceStatusBar;
+class AlignmentEditor;
 
 struct ScanPoint
 {
@@ -55,8 +78,28 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+    enum class AppPage {
+        Scan = 0,
+        Device = 1,
+        Analysis = 2,
+        Report = 3
+    };
+
 private:
     void setupUi();
+    void setupMenus();
+    void setupToolBar();
+    void setupNavigation();
+    void setupParamDock();
+    void setupAuxiliaryDocks();
+    void setupPages();
+    void switchToPage(AppPage page);
+    void exportCurrentReport(const QString &format = QStringLiteral("html"));
+    void exportAnalysisConfigJson();
+    void showAboutDialog();
+    void showDiagnosticsDialog();
+    void updateProjectStatusDisplay();
+
     QGroupBox *createSerialGroup();
     QGroupBox *createMotionControlGroup();
     QGroupBox *createMotionCommandGroup();
@@ -85,6 +128,10 @@ private:
     void loadFrequencyData();
     void populateFrequencyControls();
     void showHeatmap();
+    bool refreshHeatmapPreview();
+    void scheduleHeatmapPreviewRefresh();
+    void updateHeatmapCursorReadout(double worldX, double worldY, bool insideImage);
+    void applyHeatmapPreviewToCanvases();
     void updateColorbarDisplay();
     void updateOpacityLabel(int percent);
     void clearCurrentAnalyzer();
@@ -100,6 +147,8 @@ private:
     QString selectedDisplayMode() const;
     QString formatFrequency(double hz) const;
     QString resolveTraceCsvPath() const;
+    AnalysisRenderParams buildAnalysisParams() const;
+    void applyAlignmentToHeatmapView(const Core::AlignmentConfig &config);
 
     void refreshSerialPorts();
     void openSerialPort();
@@ -118,6 +167,11 @@ private:
     void advanceMockScan();
     void finishMockScan();
     void updateActionButtons();
+    void setScanParamsLocked(bool locked);
+    void previewScanPath();
+    Core::ScanConfig readScanConfigFromUi() const;
+    void applyPathPreviewToCanvas(const Core::ScanConfig &config, const QVector<Core::ScanPoint> &points);
+    void saveAlignmentForTaskDir(const QString &taskDir, const Core::ScanConfig &config);
     QVector<ScanPoint> buildMockScanPoints() const;
     double scanTableValue(int column, double fallback) const;
     void setScanTableValue(int column, double value);
@@ -132,6 +186,10 @@ private:
 
     QTimer *clockTimer_ = nullptr;
     QTimer *mockScanTimer_ = nullptr;
+    AnalysisController *analysisController_ = nullptr;
+    NFSScanner::Core::DeviceManager *deviceManager_ = nullptr;
+    NFSScanner::Project::ProjectManager *projectManager_ = nullptr;
+    NFSScanner::License::LicenseManager *licenseManager_ = nullptr;
     NFSScanner::Core::ScanManager *scanManager_ = nullptr;
     NFSScanner::Devices::Motion::SerialMotionController *motionController_ = nullptr;
     int scanIndex_ = 0;
@@ -142,6 +200,7 @@ private:
     QLabel *deviceDiscoveryLabel_ = nullptr;
     QStatusBar *statusBar_ = nullptr;
     QLabel *statusTextLabel_ = nullptr;
+    DeviceStatusBar *deviceStatusBar_ = nullptr;
     QProgressBar *scanProgressBar_ = nullptr;
     HeatmapView *heatmapView_ = nullptr;
 
@@ -199,14 +258,27 @@ private:
     QComboBox *startFreqUnitCombo_ = nullptr;
     QComboBox *stopFreqUnitCombo_ = nullptr;
     QComboBox *rbwUnitCombo_ = nullptr;
-    NFSScanner::Analysis::FrequencyData frequencyData_;
-    QImage currentHeatmapImage_;
-    QImage currentColorbarImage_;
-    double currentVmin_ = 0.0;
-    double currentVmax_ = 1.0;
     NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *currentAnalyzer_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumConfig currentSpectrumConfig_;
     NFSScanner::Devices::Spectrum::SpectrumTrace lastSpectrumTrace_;
+    NFSScanner::Core::AlignmentManager alignmentManager_;
+    AlignmentEditor *alignmentEditor_ = nullptr;
+
+    ScanPage *scanPage_ = nullptr;
+    DevicePage *devicePage_ = nullptr;
+    AnalysisPage *analysisPage_ = nullptr;
+    ReportPage *reportPage_ = nullptr;
+
+    QListWidget *navList_ = nullptr;
+    QStackedWidget *pageStack_ = nullptr;
+    QStackedWidget *paramDockStack_ = nullptr;
+    QDockWidget *paramDock_ = nullptr;
+    QDockWidget *logDock_ = nullptr;
+    QDockWidget *spectrumDock_ = nullptr;
+    QDockWidget *statisticsDock_ = nullptr;
+    QDockWidget *dataTableDock_ = nullptr;
+    QToolBar *mainToolBar_ = nullptr;
+    AppPage currentPage_ = AppPage::Scan;
 };
 
 } // namespace NFSScanner::UI

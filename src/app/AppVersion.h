@@ -1,5 +1,5 @@
 #pragma once
 
 #define APP_NAME "NFS Scanner"
-#define APP_VERSION "0.9.0"
-#define DATA_FORMAT_VERSION "0.7"
+#define APP_VERSION "0.10.0"
+#define DATA_FORMAT_VERSION "0.8"

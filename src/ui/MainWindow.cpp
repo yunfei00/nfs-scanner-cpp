@@ -4,47 +4,75 @@
 #include "analysis/FrequencyCsvParser.h"
 #include "analysis/HeatmapGenerator.h"
 #include "analysis/LutManager.h"
+#include "core/ScanPathPlanner.h"
+#include "core/AlignmentManager.h"
+#include "core/DeviceManager.h"
 #include "core/ScanManager.h"
+#include "license/LicenseManager.h"
+#include "project/ProjectManager.h"
+#include "report/ReportData.h"
+#include "report/ReportGenerator.h"
+#include "devices/camera/ICamera.h"
 #include "devices/motion/SerialMotionController.h"
 #include "devices/spectrum/ISpectrumAnalyzer.h"
 #include "devices/spectrum/SpectrumAnalyzerFactory.h"
+#include "ui/AnalysisController.h"
+#include "ui/AlignmentEditor.h"
+#include "ui/DeviceStatusBar.h"
 #include "ui/HeatmapDialog.h"
 #include "ui/HeatmapView.h"
+#include "ui/pages/AnalysisPage.h"
+#include "ui/pages/DevicePage.h"
+#include "ui/pages/ReportPage.h"
+#include "ui/pages/ScanPage.h"
 
 #include <QAbstractScrollArea>
+#include <QAction>
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDockWidget>
 #include <QDoubleValidator>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIntValidator>
+#include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QPixmap>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSerialPortInfo>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QTime>
+#include <QToolBar>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QVariantMap>
@@ -117,11 +145,49 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle(QStringLiteral(APP_NAME " v" APP_VERSION " - 近场扫描系统"));
     resize(1600, 900);
 
+    deviceManager_ = new Core::DeviceManager(this);
+    projectManager_ = new Project::ProjectManager(this);
+    licenseManager_ = new License::LicenseManager(this);
+    motionController_ = deviceManager_->motionController();
+
+    analysisController_ = new AnalysisController(this);
+    connect(analysisController_, &AnalysisController::previewUpdated, this, [this]() {
+        applyHeatmapPreviewToCanvases();
+        updateColorbarDisplay();
+        if (analysisPage_ && analysisPage_->previewCanvas()) {
+            HeatmapView::GridMapping mapping;
+            mapping.xs = analysisController_->frequencyData().xs();
+            mapping.ys = analysisController_->frequencyData().ys();
+            const QVector<double> zs = analysisController_->frequencyData().zs();
+            mapping.z = zs.isEmpty() ? 0.0 : zs.first();
+            analysisPage_->previewCanvas()->setGridMapping(mapping);
+        }
+    });
+    connect(analysisController_, &AnalysisController::actualRangeUpdated, this, [this](double vmin, double vmax) {
+        if (vminSpin_) {
+            const QSignalBlocker blocker(vminSpin_);
+            vminSpin_->setValue(vmin);
+        }
+        if (vmaxSpin_) {
+            const QSignalBlocker blocker(vmaxSpin_);
+            vmaxSpin_->setValue(vmax);
+        }
+    });
+
     setupUi();
     setupStatusBar();
-    motionController_ = new Devices::Motion::SerialMotionController(this);
-    setupMotionController();
+
+    connect(deviceManager_, &Core::DeviceManager::logMessage, this, &MainWindow::appendLog);
+    connect(projectManager_, &Project::ProjectManager::logMessage, this, &MainWindow::appendLog);
+    connect(projectManager_, &Project::ProjectManager::projectChanged, this, [this]() {
+        updateProjectStatusDisplay();
+        if (resultDirEdit_ && projectManager_->hasOpenProject()) {
+            resultDirEdit_->setText(projectManager_->defaultScanOutputDir());
+        }
+    });
+
     scanManager_ = new Core::ScanManager(this);
+    setupMotionController();
     setupScanManager();
 
     clockTimer_ = new QTimer(this);
@@ -131,6 +197,16 @@ MainWindow::MainWindow(QWidget *parent)
     mockScanTimer_ = new QTimer(this);
     mockScanTimer_->setInterval(100);
     connect(mockScanTimer_, &QTimer::timeout, this, &MainWindow::advanceMockScan);
+
+    if (deviceStatusBar_) {
+        deviceStatusBar_->bindDeviceManager(deviceManager_);
+    }
+
+    if (analysisPage_ && analysisPage_->previewCanvas()) {
+        analysisPage_->previewCanvas()->setCrosshairEnabled(true);
+        connect(analysisPage_->previewCanvas(), &HeatmapView::cursorSampleChanged,
+                this, &MainWindow::updateHeatmapCursorReadout);
+    }
 
     updateActionButtons();
     updateStatusBar();
@@ -147,36 +223,522 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUi()
 {
+    setupMenus();
+    setupToolBar();
+    setupNavigation();
+    setupParamDock();
+    setupAuxiliaryDocks();
+    switchToPage(AppPage::Scan);
+}
+
+void MainWindow::setupMenus()
+{
+    auto *fileMenu = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+    fileMenu->addAction(QStringLiteral("新建项目"), this, [this]() {
+        const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择项目父目录"),
+                                                              projectManager_ ? projectManager_->workspaceRoot() : QString());
+        if (dir.isEmpty()) {
+            return;
+        }
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("新建项目"),
+                                                   QStringLiteral("项目名称："), QLineEdit::Normal,
+                                                   QStringLiteral("NewProject"), &ok);
+        if (!ok || name.trimmed().isEmpty()) {
+            return;
+        }
+        if (projectManager_->createProject(name.trimmed(), dir)) {
+            appendLog(QStringLiteral("项目已创建：%1").arg(projectManager_->currentProject().rootPath));
+        } else {
+            QMessageBox::warning(this, QStringLiteral("新建项目失败"), projectManager_->lastError());
+        }
+    });
+    fileMenu->addAction(QStringLiteral("打开项目"), this, [this]() {
+        const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("打开项目文件夹"));
+        if (path.isEmpty()) {
+            return;
+        }
+        if (!projectManager_->openProject(path)) {
+            QMessageBox::warning(this, QStringLiteral("打开项目失败"), projectManager_->lastError());
+        }
+    });
+    fileMenu->addAction(QStringLiteral("保存项目"), this, [this]() {
+        if (!projectManager_->saveProject()) {
+            QMessageBox::warning(this, QStringLiteral("保存项目失败"), projectManager_->lastError());
+        }
+    });
+    fileMenu->addAction(QStringLiteral("另存为"), this, [this]() {
+        const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("另存为项目目录"));
+        if (path.isEmpty()) {
+            return;
+        }
+        if (!projectManager_->saveProjectAs(path)) {
+            QMessageBox::warning(this, QStringLiteral("另存为失败"), projectManager_->lastError());
+        }
+    });
+    auto *recentMenu = fileMenu->addMenu(QStringLiteral("最近项目"));
+    if (projectManager_) {
+        for (const QString &recent : projectManager_->recentProjects()) {
+            recentMenu->addAction(recent, this, [this, recent]() {
+                projectManager_->openProject(recent);
+            });
+        }
+    }
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("退出"), this, &QWidget::close);
+
+    menuBar()->addMenu(QStringLiteral("编辑(&E)"));
+
+    auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图(&V)"));
+    viewMenu->addAction(QStringLiteral("显示参数面板"), this, [this]() {
+        if (paramDock_) {
+            paramDock_->setVisible(!paramDock_->isVisible());
+        }
+    });
+    viewMenu->addSeparator();
+    viewMenu->addAction(QStringLiteral("日志"), this, [this]() {
+        if (logDock_) {
+            logDock_->setVisible(!logDock_->isVisible());
+        }
+    });
+    viewMenu->addAction(QStringLiteral("频谱"), this, [this]() {
+        if (spectrumDock_) {
+            spectrumDock_->setVisible(!spectrumDock_->isVisible());
+        }
+    });
+    viewMenu->addAction(QStringLiteral("统计"), this, [this]() {
+        if (statisticsDock_) {
+            statisticsDock_->setVisible(!statisticsDock_->isVisible());
+        }
+    });
+    viewMenu->addAction(QStringLiteral("数据表格"), this, [this]() {
+        if (dataTableDock_) {
+            dataTableDock_->setVisible(!dataTableDock_->isVisible());
+        }
+    });
+
+    auto *toolsMenu = menuBar()->addMenu(QStringLiteral("工具(&T)"));
+    toolsMenu->addAction(QStringLiteral("导出图片"), this, [this]() { showHeatmap(); });
+    toolsMenu->addAction(QStringLiteral("导出报告 (HTML)"), this, [this]() { exportCurrentReport(QStringLiteral("html")); });
+    toolsMenu->addAction(QStringLiteral("导出分析配置 JSON"), this, &MainWindow::exportAnalysisConfigJson);
+    toolsMenu->addAction(QStringLiteral("打开数据目录"), this, [this]() {
+        const QString path = resultDirEdit_ ? resultDirEdit_->text().trimmed() : QString();
+        if (!path.isEmpty()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        }
+    });
+
+    auto *deviceMenu = menuBar()->addMenu(QStringLiteral("设备(&D)"));
+    deviceMenu->addAction(QStringLiteral("刷新设备"), this, [this]() {
+        if (deviceManager_) {
+            deviceManager_->refreshDevices();
+        }
+        refreshSerialPorts();
+    });
+    deviceMenu->addAction(QStringLiteral("连接全部"), this, [this]() {
+        if (deviceManager_) {
+            deviceManager_->connectAll();
+        }
+    });
+    deviceMenu->addAction(QStringLiteral("断开全部"), this, [this]() {
+        if (deviceManager_) {
+            deviceManager_->disconnectAll();
+        }
+    });
+
+    auto *scanMenu = menuBar()->addMenu(QStringLiteral("扫描(&S)"));
+    scanMenu->addAction(QStringLiteral("开始"), this, &MainWindow::startScan);
+    scanMenu->addAction(QStringLiteral("暂停/继续"), this, &MainWindow::pauseScan);
+    scanMenu->addAction(QStringLiteral("停止"), this, &MainWindow::stopScan);
+
+    menuBar()->addMenu(QStringLiteral("设置(&S)"));
+
+    auto *helpMenu = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
+    helpMenu->addAction(QStringLiteral("关于"), this, &MainWindow::showAboutDialog);
+    helpMenu->addAction(QStringLiteral("诊断信息"), this, &MainWindow::showDiagnosticsDialog);
+}
+
+void MainWindow::setupToolBar()
+{
+    mainToolBar_ = addToolBar(QStringLiteral("mainToolBar"));
+    mainToolBar_->setObjectName(QStringLiteral("mainToolBar"));
+    mainToolBar_->setMovable(false);
+
+    auto *startAction = mainToolBar_->addAction(QStringLiteral("开始扫描"), this, &MainWindow::startScan);
+    startAction->setObjectName(QStringLiteral("toolbarStartScanAction"));
+    auto *pauseAction = mainToolBar_->addAction(QStringLiteral("暂停"), this, &MainWindow::pauseScan);
+    pauseAction->setObjectName(QStringLiteral("toolbarPauseScanAction"));
+    auto *stopAction = mainToolBar_->addAction(QStringLiteral("停止"), this, &MainWindow::stopScan);
+    stopAction->setObjectName(QStringLiteral("toolbarStopScanAction"));
+    Q_UNUSED(pauseAction)
+    Q_UNUSED(stopAction)
+}
+
+void MainWindow::setupNavigation()
+{
     auto *central = new QWidget(this);
+    central->setObjectName(QStringLiteral("centralWidget"));
     auto *rootLayout = new QHBoxLayout(central);
-    rootLayout->setContentsMargins(10, 10, 10, 8);
-    rootLayout->setSpacing(10);
+    rootLayout->setContentsMargins(6, 6, 6, 6);
+    rootLayout->setSpacing(6);
 
-    auto *leftPanel = new QWidget(central);
-    auto *leftLayout = new QVBoxLayout(leftPanel);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(8);
-    leftLayout->addWidget(createSerialGroup());
-    leftLayout->addWidget(createMotionControlGroup());
-    leftLayout->addWidget(createMotionCommandGroup());
-    leftLayout->addWidget(createStepConfigGroup());
-    leftLayout->addWidget(createTestInfoGroup());
-    leftLayout->addWidget(createActionGroup());
-    leftLayout->addStretch(1);
+    navList_ = new QListWidget(central);
+    navList_->setObjectName(QStringLiteral("leftNavigationBar"));
+    navList_->setFixedWidth(72);
+    navList_->setSpacing(2);
+    navList_->setFocusPolicy(Qt::NoFocus);
 
-    auto *rightPanel = new QWidget(central);
-    auto *rightLayout = new QVBoxLayout(rightPanel);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(8);
-    rightLayout->addWidget(createScanAreaGroup(), 0);
-    rightLayout->addWidget(createInstrumentGroup(), 0);
-    rightLayout->addWidget(createResultGroup(), 0);
-    rightLayout->addWidget(createHeatmapPreviewGroup(), 1);
-    rightLayout->addWidget(createLogGroup(), 1);
+    const QStringList navLabels{
+        QStringLiteral("扫描"),
+        QStringLiteral("设备"),
+        QStringLiteral("分析"),
+        QStringLiteral("报告"),
+    };
+    for (int i = 0; i < navLabels.size(); ++i) {
+        auto *item = new QListWidgetItem(navLabels.at(i));
+        item->setTextAlignment(Qt::AlignCenter);
+        item->setData(Qt::UserRole, i);
+        item->setSizeHint(QSize(64, 52));
+        navList_->addItem(item);
+    }
+    navList_->setCurrentRow(0);
 
-    rootLayout->addWidget(leftPanel, 1);
-    rootLayout->addWidget(rightPanel, 1);
+    setupPages();
+
+    pageStack_ = new QStackedWidget(central);
+    pageStack_->setObjectName(QStringLiteral("pageStack"));
+    pageStack_->addWidget(scanPage_);
+    pageStack_->addWidget(devicePage_);
+    pageStack_->addWidget(analysisPage_);
+    pageStack_->addWidget(reportPage_);
+
+    rootLayout->addWidget(navList_);
+    rootLayout->addWidget(pageStack_, 1);
     setCentralWidget(central);
+
+    connect(navList_, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row < 0 || row > 3) {
+            return;
+        }
+        switchToPage(static_cast<AppPage>(row));
+    });
+}
+
+void MainWindow::setupParamDock()
+{
+    paramDockStack_ = new QStackedWidget(this);
+    paramDockStack_->setObjectName(QStringLiteral("paramDockStack"));
+
+    auto *scanDockPage = new QWidget(paramDockStack_);
+    auto *scanDockLayout = new QVBoxLayout(scanDockPage);
+    scanDockLayout->setContentsMargins(4, 4, 4, 4);
+    scanDockLayout->setSpacing(6);
+    scanDockLayout->addWidget(createScanAreaGroup());
+    scanDockLayout->addWidget(createTestInfoGroup());
+    scanDockLayout->addWidget(createStepConfigGroup());
+    scanDockLayout->addWidget(createActionGroup());
+    alignmentEditor_ = new AlignmentEditor(scanDockPage);
+    scanDockLayout->addWidget(alignmentEditor_);
+    connect(alignmentEditor_, &AlignmentEditor::configApplied, this, [this](const Core::AlignmentConfig &config) {
+        alignmentManager_.setConfig(config);
+        applyAlignmentToHeatmapView(config);
+    });
+    scanDockLayout->addStretch(1);
+    paramDockStack_->addWidget(scanDockPage);
+
+    auto *deviceDockPage = new QWidget(paramDockStack_);
+    auto *deviceDockLayout = new QVBoxLayout(deviceDockPage);
+    deviceDockLayout->setContentsMargins(4, 4, 4, 4);
+    deviceDockLayout->addWidget(createInstrumentGroup());
+    deviceDockLayout->addStretch(1);
+    paramDockStack_->addWidget(deviceDockPage);
+
+    auto *analysisDockPage = new QWidget(paramDockStack_);
+    auto *analysisDockLayout = new QVBoxLayout(analysisDockPage);
+    analysisDockLayout->setContentsMargins(4, 4, 4, 4);
+    analysisDockLayout->addWidget(createResultGroup());
+    analysisDockLayout->addStretch(1);
+    paramDockStack_->addWidget(analysisDockPage);
+
+    auto *reportDockPage = new QWidget(paramDockStack_);
+    auto *reportDockLayout = new QVBoxLayout(reportDockPage);
+    reportDockLayout->setContentsMargins(8, 8, 8, 8);
+    auto *exportHtmlButton = new QPushButton(QStringLiteral("导出 HTML 报告"), reportDockPage);
+    auto *exportMdButton = new QPushButton(QStringLiteral("导出 Markdown 报告"), reportDockPage);
+    auto *exportPdfButton = new QPushButton(QStringLiteral("导出 PDF 报告"), reportDockPage);
+    auto *exportPngButton = new QPushButton(QStringLiteral("导出 PNG 图片集"), reportDockPage);
+    reportDockLayout->addWidget(new QLabel(QStringLiteral("报告导出"), reportDockPage));
+    reportDockLayout->addWidget(exportHtmlButton);
+    reportDockLayout->addWidget(exportMdButton);
+    reportDockLayout->addWidget(exportPdfButton);
+    reportDockLayout->addWidget(exportPngButton);
+    reportDockLayout->addStretch(1);
+    connect(exportHtmlButton, &QPushButton::clicked, this, [this]() { exportCurrentReport(QStringLiteral("html")); });
+    connect(exportMdButton, &QPushButton::clicked, this, [this]() { exportCurrentReport(QStringLiteral("md")); });
+    connect(exportPdfButton, &QPushButton::clicked, this, [this]() { exportCurrentReport(QStringLiteral("pdf")); });
+    connect(exportPngButton, &QPushButton::clicked, this, [this]() { exportCurrentReport(QStringLiteral("png")); });
+    paramDockStack_->addWidget(reportDockPage);
+
+    paramDock_ = new QDockWidget(QStringLiteral("扫描参数"), this);
+    paramDock_->setObjectName(QStringLiteral("scanParamDock"));
+    paramDock_->setWidget(paramDockStack_);
+    paramDock_->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    addDockWidget(Qt::RightDockWidgetArea, paramDock_);
+    paramDock_->setMinimumWidth(320);
+}
+
+void MainWindow::setupAuxiliaryDocks()
+{
+    logDock_ = new QDockWidget(QStringLiteral("日志"), this);
+    logDock_->setObjectName(QStringLiteral("logDock"));
+    logDock_->setWidget(createLogGroup());
+    addDockWidget(Qt::BottomDockWidgetArea, logDock_);
+    logDock_->hide();
+
+    spectrumDock_ = new QDockWidget(QStringLiteral("频谱"), this);
+    spectrumDock_->setObjectName(QStringLiteral("spectrumDock"));
+    auto *spectrumPage = new QWidget(spectrumDock_);
+    auto *spectrumLayout = new QVBoxLayout(spectrumPage);
+    auto *spectrumHint = new QLabel(QStringLiteral("频谱面板：扫描完成后在此显示迹线曲线（待实现）。"), spectrumPage);
+    spectrumHint->setWordWrap(true);
+    spectrumHint->setAlignment(Qt::AlignCenter);
+    spectrumLayout->addStretch(1);
+    spectrumLayout->addWidget(spectrumHint);
+    spectrumLayout->addStretch(1);
+    spectrumDock_->setWidget(spectrumPage);
+    addDockWidget(Qt::BottomDockWidgetArea, spectrumDock_);
+    spectrumDock_->hide();
+
+    statisticsDock_ = new QDockWidget(QStringLiteral("统计"), this);
+    statisticsDock_->setObjectName(QStringLiteral("statisticsDock"));
+    auto *statsPage = new QWidget(statisticsDock_);
+    auto *statsLayout = new QVBoxLayout(statsPage);
+    auto *statsHint = new QLabel(QStringLiteral("统计面板：幅度 min/max/mean 等（待实现）。"), statsPage);
+    statsHint->setWordWrap(true);
+    statsHint->setAlignment(Qt::AlignCenter);
+    statsLayout->addStretch(1);
+    statsLayout->addWidget(statsHint);
+    statsLayout->addStretch(1);
+    statisticsDock_->setWidget(statsPage);
+    addDockWidget(Qt::BottomDockWidgetArea, statisticsDock_);
+    statisticsDock_->hide();
+
+    dataTableDock_ = new QDockWidget(QStringLiteral("数据表格"), this);
+    dataTableDock_->setObjectName(QStringLiteral("dataTableDock"));
+    auto *tablePage = new QWidget(dataTableDock_);
+    auto *tableLayout = new QVBoxLayout(tablePage);
+    auto *tableHint = new QLabel(QStringLiteral("数据表格：points.csv / traces.csv 预览（待实现）。"), tablePage);
+    tableHint->setWordWrap(true);
+    tableHint->setAlignment(Qt::AlignCenter);
+    tableLayout->addStretch(1);
+    tableLayout->addWidget(tableHint);
+    tableLayout->addStretch(1);
+    dataTableDock_->setWidget(tablePage);
+    addDockWidget(Qt::BottomDockWidgetArea, dataTableDock_);
+    dataTableDock_->hide();
+}
+
+void MainWindow::setupPages()
+{
+    scanPage_ = new ScanPage(this);
+    heatmapView_ = scanPage_->canvas();
+
+    devicePage_ = new DevicePage(this);
+    if (auto *deviceLayout = qobject_cast<QVBoxLayout *>(devicePage_->contentHost()->layout())) {
+        deviceLayout->insertWidget(0, createSerialGroup());
+        deviceLayout->insertWidget(1, createMotionControlGroup());
+        deviceLayout->insertWidget(2, createMotionCommandGroup());
+
+        auto *diagnosticsGroup = new QGroupBox(QStringLiteral("系统诊断"), devicePage_->contentHost());
+        auto *diagLayout = new QFormLayout(diagnosticsGroup);
+        diagLayout->addRow(QStringLiteral("版本"), new QLabel(QStringLiteral(APP_NAME " v" APP_VERSION), diagnosticsGroup));
+        diagLayout->addRow(QStringLiteral("Qt"), new QLabel(QStringLiteral(QT_VERSION_STR), diagnosticsGroup));
+        diagLayout->addRow(QStringLiteral("授权"), new QLabel(licenseManager_
+            ? License::licenseStatusText(licenseManager_->status())
+            : QStringLiteral("Demo"), diagnosticsGroup));
+        diagLayout->addRow(QStringLiteral("Machine ID"), new QLabel(licenseManager_
+            ? licenseManager_->machineId()
+            : QStringLiteral("-"), diagnosticsGroup));
+        deviceLayout->insertWidget(3, diagnosticsGroup);
+
+        auto *cameraPlaceholder = new QGroupBox(QStringLiteral("相机（可选）"), devicePage_->contentHost());
+        auto *cameraLayout = new QVBoxLayout(cameraPlaceholder);
+        auto *cameraConnectBtn = new QPushButton(QStringLiteral("连接 Mock Camera"), cameraPlaceholder);
+        auto *cameraCaptureBtn = new QPushButton(QStringLiteral("拍照"), cameraPlaceholder);
+        cameraLayout->addWidget(new QLabel(QStringLiteral("相机模块可选，不影响扫描数据采集。"), cameraPlaceholder));
+        cameraLayout->addWidget(cameraConnectBtn);
+        cameraLayout->addWidget(cameraCaptureBtn);
+        deviceLayout->insertWidget(4, cameraPlaceholder);
+        connect(cameraConnectBtn, &QPushButton::clicked, this, [this]() {
+            if (deviceManager_) {
+                deviceManager_->connectCamera();
+            }
+        });
+        connect(cameraCaptureBtn, &QPushButton::clicked, this, [this]() {
+            if (deviceManager_ && deviceManager_->camera()) {
+                deviceManager_->camera()->captureFrame();
+            }
+        });
+
+        auto *servoPlaceholder = new QGroupBox(QStringLiteral("舵机 / Hx·Hy（占位）"), devicePage_->contentHost());
+        auto *servoLayout = new QVBoxLayout(servoPlaceholder);
+        servoLayout->addWidget(new QLabel(QStringLiteral("Hx/Hy 探头切换将在 Release 014C 实现。"), servoPlaceholder));
+        deviceLayout->insertWidget(5, servoPlaceholder);
+    }
+
+    analysisPage_ = new AnalysisPage(this);
+
+    reportPage_ = new ReportPage(this);
+}
+
+void MainWindow::updateProjectStatusDisplay()
+{
+    if (!statusTextLabel_ || !projectManager_) {
+        return;
+    }
+    updateStatusBar();
+}
+
+void MainWindow::exportCurrentReport(const QString &format)
+{
+    Report::ReportData data;
+    data.projectName = projectManager_ && projectManager_->hasOpenProject()
+        ? projectManager_->currentProject().name
+        : (projectNameEdit_ ? projectNameEdit_->text() : QStringLiteral("Demo"));
+    data.scanTaskDir = resultDirEdit_ ? resultDirEdit_->text() : QString();
+    data.scanTime = QDateTime::currentDateTime();
+    data.traceId = traceCombo_ ? traceCombo_->currentText() : QString();
+    data.lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
+    data.vmin = analysisController_ ? analysisController_->vmin() : 0.0;
+    data.vmax = analysisController_ ? analysisController_->vmax() : 1.0;
+    data.heatmapImage = analysisController_ ? analysisController_->heatmapImage() : QImage();
+    data.notes = testNameEdit_ ? testNameEdit_->text() : QString();
+    if (currentSpectrumConfig_.stopFreqHz > 0.0) {
+        data.startFrequencyHz = currentSpectrumConfig_.startFreqHz;
+        data.stopFrequencyHz = currentSpectrumConfig_.stopFreqHz;
+    }
+    data.deviceSummary = deviceManager_
+        ? QStringLiteral("运动:%1 频谱:%2 相机:%3")
+              .arg(Core::deviceConnectionStateText(deviceManager_->motionState()),
+                   Core::deviceConnectionStateText(deviceManager_->spectrumState()),
+                   Core::deviceConnectionStateText(deviceManager_->cameraState()))
+        : QStringLiteral("Demo");
+
+    Report::ReportGenerator generator;
+    if (format == QStringLiteral("png")) {
+        const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择 PNG 导出目录"));
+        if (dir.isEmpty()) {
+            return;
+        }
+        if (!generator.exportPngImages(data, dir)) {
+            QMessageBox::warning(this, QStringLiteral("导出失败"), generator.lastError());
+            return;
+        }
+        appendLog(QStringLiteral("PNG 图片集已导出：%1").arg(dir));
+        return;
+    }
+
+    const QString filter = format == QStringLiteral("pdf")
+        ? QStringLiteral("PDF (*.pdf)")
+        : (format == QStringLiteral("md") ? QStringLiteral("Markdown (*.md)") : QStringLiteral("HTML (*.html)"));
+    const QString defaultName = format == QStringLiteral("pdf")
+        ? QStringLiteral("report.pdf")
+        : (format == QStringLiteral("md") ? QStringLiteral("report.md") : QStringLiteral("report.html"));
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出报告"), defaultName, filter);
+    if (path.isEmpty()) {
+        return;
+    }
+
+    bool ok = false;
+    if (format == QStringLiteral("pdf")) {
+        ok = generator.exportPdf(data, path);
+    } else if (format == QStringLiteral("md")) {
+        ok = generator.exportMarkdown(data, path);
+    } else {
+        ok = generator.exportHtml(data, path);
+    }
+    if (!ok) {
+        QMessageBox::warning(this, QStringLiteral("导出失败"), generator.lastError());
+        return;
+    }
+    appendLog(QStringLiteral("报告已导出：%1").arg(path));
+    if (reportPage_ && reportPage_->previewEditor()) {
+        reportPage_->previewEditor()->setPlainText(
+            QStringLiteral("已导出 %1\n项目：%2\nTrace：%3\n路径：%4")
+                .arg(format.toUpper(), data.projectName, data.traceId, path));
+    }
+}
+
+void MainWindow::exportAnalysisConfigJson()
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("trace"), traceCombo_ ? traceCombo_->currentText() : QString());
+    obj.insert(QStringLiteral("frequency_hz"), frequencyCombo_ ? frequencyCombo_->currentData().toDouble() : 0.0);
+    obj.insert(QStringLiteral("display_mode"), selectedDisplayMode());
+    obj.insert(QStringLiteral("lut"), lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo"));
+    obj.insert(QStringLiteral("vmin"), analysisController_ ? analysisController_->vmin() : 0.0);
+    obj.insert(QStringLiteral("vmax"), analysisController_ ? analysisController_->vmax() : 1.0);
+    obj.insert(QStringLiteral("opacity"), opacitySlider_ ? opacitySlider_->value() : 85);
+
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出分析配置"),
+                                                      QStringLiteral("analysis_config.json"),
+                                                      QStringLiteral("JSON (*.json)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, QStringLiteral("导出失败"), file.errorString());
+        return;
+    }
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    appendLog(QStringLiteral("分析配置已导出：%1").arg(path));
+}
+
+void MainWindow::showAboutDialog()
+{
+    QMessageBox::about(this, QStringLiteral("关于"),
+                       QStringLiteral("%1 v%2\n\n近场扫描系统 Qt C++ 客户端。").arg(QStringLiteral(APP_NAME), QStringLiteral(APP_VERSION)));
+}
+
+void MainWindow::showDiagnosticsDialog()
+{
+    const QString text = QStringLiteral(
+        "构建版本：%1 v%2\nQt：%3\nMachine ID：%4\n授权：%5\nWorkspace：%6\n数据格式：%7")
+                             .arg(QStringLiteral(APP_NAME),
+                                  QStringLiteral(APP_VERSION),
+                                  QStringLiteral(QT_VERSION_STR),
+                                  licenseManager_ ? licenseManager_->machineId() : QStringLiteral("-"),
+                                  licenseManager_ ? License::licenseStatusText(licenseManager_->status()) : QStringLiteral("Demo"),
+                                  projectManager_ ? projectManager_->workspaceRoot() : QStringLiteral("-"),
+                                  QStringLiteral(DATA_FORMAT_VERSION));
+    QMessageBox::information(this, QStringLiteral("诊断信息"), text);
+}
+
+void MainWindow::switchToPage(AppPage page)
+{
+    currentPage_ = page;
+    if (pageStack_) {
+        pageStack_->setCurrentIndex(static_cast<int>(page));
+    }
+    if (paramDockStack_) {
+        paramDockStack_->setCurrentIndex(static_cast<int>(page));
+    }
+
+    static const QStringList dockTitles{
+        QStringLiteral("扫描参数"),
+        QStringLiteral("设备配置"),
+        QStringLiteral("分析参数"),
+        QStringLiteral("报告设置"),
+    };
+    if (paramDock_ && static_cast<int>(page) < dockTitles.size()) {
+        paramDock_->setWindowTitle(dockTitles.at(static_cast<int>(page)));
+    }
+
+    if (navList_ && navList_->currentRow() != static_cast<int>(page)) {
+        const QSignalBlocker blocker(navList_);
+        navList_->setCurrentRow(static_cast<int>(page));
+    }
 }
 
 QGroupBox *MainWindow::createSerialGroup()
@@ -221,6 +783,9 @@ QGroupBox *MainWindow::createSerialGroup()
     connect(openSerialButton_, &QPushButton::clicked, this, &MainWindow::openSerialPort);
     connect(closeSerialButton_, &QPushButton::clicked, this, &MainWindow::closeSerialPort);
     connect(mockModeCheck_, &QCheckBox::toggled, this, [this](bool checked) {
+        if (deviceManager_) {
+            deviceManager_->setMotionMockMode(checked);
+        }
         if (checked) {
             if (motionController_ && motionController_->isOpen()) {
                 motionController_->closePort();
@@ -429,7 +994,11 @@ QGroupBox *MainWindow::createActionGroup()
     layout->addWidget(pauseScanButton_, 0, 1);
     layout->addWidget(stopScanButton_, 0, 2);
     layout->addWidget(clearLogButton, 1, 0);
-    layout->addWidget(searchInstrumentButton, 1, 1, 1, 2);
+    layout->addWidget(searchInstrumentButton, 1, 1);
+    auto *previewPathButton = new QPushButton(QStringLiteral("预览路径"), group);
+    layout->addWidget(previewPathButton, 1, 2);
+
+    connect(previewPathButton, &QPushButton::clicked, this, &MainWindow::previewScanPath);
 
     scanProgressBar_ = new QProgressBar(group);
     scanProgressBar_->setRange(0, 1);
@@ -801,18 +1370,30 @@ QGroupBox *MainWindow::createResultGroup()
         if (vmaxSpin_) {
             vmaxSpin_->setEnabled(!checked);
         }
+        scheduleHeatmapPreviewRefresh();
     });
     connect(opacitySlider_, &QSlider::valueChanged, this, &MainWindow::updateOpacityLabel);
     connect(lutCombo_, &QComboBox::currentTextChanged, this, [this]() {
-        if (currentColorbarImage_.isNull()) {
+        if (!analysisController_ || analysisController_->colorbarImage().isNull()) {
             updateColorbarDisplay();
         }
+        scheduleHeatmapPreviewRefresh();
     });
     connect(opacitySlider_, &QSlider::valueChanged, this, [this]() {
-        if (currentColorbarImage_.isNull()) {
+        if (!analysisController_ || analysisController_->colorbarImage().isNull()) {
             updateColorbarDisplay();
         }
     });
+    connect(traceCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::scheduleHeatmapPreviewRefresh);
+    connect(frequencyCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::scheduleHeatmapPreviewRefresh);
+    connect(displayModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::scheduleHeatmapPreviewRefresh);
+    connect(vminSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::scheduleHeatmapPreviewRefresh);
+    connect(vmaxSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::scheduleHeatmapPreviewRefresh);
 
     updateColorbarDisplay();
 
@@ -851,10 +1432,12 @@ QGroupBox *MainWindow::createLogGroup()
 void MainWindow::setupStatusBar()
 {
     statusBar_ = new QStatusBar(this);
+    deviceStatusBar_ = new DeviceStatusBar(statusBar_);
+    statusBar_->addWidget(deviceStatusBar_, 1);
     statusTextLabel_ = new QLabel(statusBar_);
     statusTextLabel_->setObjectName(QStringLiteral("statusTextLabel"));
     statusTextLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    statusBar_->addPermanentWidget(statusTextLabel_, 1);
+    statusBar_->addPermanentWidget(statusTextLabel_, 2);
     setStatusBar(statusBar_);
 }
 
@@ -890,6 +1473,9 @@ void MainWindow::setupScanManager()
         return;
     }
 
+    scanManager_->setSpectrumDeviceHost(deviceManager_ ? deviceManager_->spectrumDeviceHost() : nullptr);
+    scanManager_->setSpectrumDeviceThread(deviceManager_ ? deviceManager_->spectrumDeviceThread() : nullptr);
+
     connect(scanManager_, &Core::ScanManager::stateChanged, this, [this](const QString &stateText) {
         setAppState(stateText);
         updateActionButtons();
@@ -897,7 +1483,7 @@ void MainWindow::setupScanManager()
     connect(scanManager_, &Core::ScanManager::logMessage, this, &MainWindow::appendLog);
     connect(scanManager_, &Core::ScanManager::progressChanged, this, [this](int current, int total) {
         updateScanProgress(current, total);
-        if (heatmapView_ && currentHeatmapImage_.isNull()) {
+        if (heatmapView_ && analysisController_->heatmapImage().isNull()) {
             heatmapView_->setScanProgress(current, total);
         }
     });
@@ -916,6 +1502,7 @@ void MainWindow::setupScanManager()
         if (resultDirEdit_) {
             resultDirEdit_->setText(taskDir);
         }
+        saveAlignmentForTaskDir(taskDir, readScanConfigFromUi());
     });
     connect(scanManager_, &Core::ScanManager::scanFinished, this, [this](const QString &taskDir) {
         remainingText_ = QStringLiteral("0");
@@ -1054,45 +1641,59 @@ void MainWindow::loadFrequencyData()
         return;
     }
 
-    Analysis::FrequencyCsvParser parser;
-    Analysis::FrequencyData loadedData;
-    if (!parser.loadFile(tracePath, &loadedData)) {
-        const QString message = parser.lastError();
-        appendLog(QStringLiteral("加载数据失败：%1").arg(message));
-        QMessageBox::warning(this, QStringLiteral("加载失败"), message);
+    QString errorMessage;
+    if (!analysisController_ || !analysisController_->loadTraceCsv(tracePath, &errorMessage)) {
+        appendLog(QStringLiteral("加载数据失败：%1").arg(errorMessage));
+        QMessageBox::warning(this, QStringLiteral("加载失败"), errorMessage);
         return;
     }
 
-    frequencyData_ = loadedData;
     populateFrequencyControls();
+    const auto &data = analysisController_->frequencyData();
     appendLog(QStringLiteral("已加载数据：trace数量=%1，频率点=%2，坐标点=%3")
-                  .arg(frequencyData_.traceIds().size())
-                  .arg(frequencyData_.frequencyCount())
-                  .arg(frequencyData_.pointCount()));
-    if (!parser.lastError().isEmpty()) {
-        appendLog(parser.lastError());
-    }
+                  .arg(data.traceIds().size())
+                  .arg(data.frequencyCount())
+                  .arg(data.pointCount()));
+    scheduleHeatmapPreviewRefresh();
 }
 
 void MainWindow::populateFrequencyControls()
 {
+    if (!analysisController_) {
+        return;
+    }
+    const auto &data = analysisController_->frequencyData();
     if (traceCombo_) {
         traceCombo_->clear();
-        traceCombo_->addItems(frequencyData_.traceIds());
+        traceCombo_->addItems(data.traceIds());
     }
 
     if (frequencyCombo_) {
         frequencyCombo_->clear();
-        const QVector<double> freqs = frequencyData_.freqs();
+        const QVector<double> freqs = data.freqs();
         for (double freq : freqs) {
             frequencyCombo_->addItem(formatFrequency(freq), freq);
         }
     }
 }
 
+AnalysisRenderParams MainWindow::buildAnalysisParams() const
+{
+    AnalysisRenderParams params;
+    params.traceId = traceCombo_ ? traceCombo_->currentText() : QString();
+    params.freqIndex = frequencyCombo_ ? frequencyCombo_->currentIndex() : -1;
+    params.mode = selectedDisplayMode();
+    params.lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
+    params.autoRange = !autoRangeCheck_ || autoRangeCheck_->isChecked();
+    params.vmin = vminSpin_ ? vminSpin_->value() : 0.0;
+    params.vmax = vmaxSpin_ ? vmaxSpin_->value() : 1.0;
+    params.opacityPercent = opacitySlider_ ? opacitySlider_->value() : 85;
+    return params;
+}
+
 void MainWindow::showHeatmap()
 {
-    if (!frequencyData_.isValid()) {
+    if (!analysisController_ || !analysisController_->frequencyData().isValid()) {
         const QString message = QStringLiteral("请先加载 traces.csv 数据。");
         appendLog(message);
         QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
@@ -1107,64 +1708,97 @@ void MainWindow::showHeatmap()
         return;
     }
 
-    const int freqIndex = frequencyCombo_ ? frequencyCombo_->currentIndex() : -1;
-
-    const QString mode = selectedDisplayMode();
-    Analysis::HeatmapGenerator generator;
-    Analysis::HeatmapRenderOptions options;
-    options.traceId = traceId;
-    options.freqIndex = freqIndex;
-    options.mode = mode;
-    options.lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
-    options.autoRange = !autoRangeCheck_ || autoRangeCheck_->isChecked();
-    options.vmin = vminSpin_ ? vminSpin_->value() : 0.0;
-    options.vmax = vmaxSpin_ ? vmaxSpin_->value() : 1.0;
-    options.alpha = opacitySlider_ ? std::clamp(opacitySlider_->value() * 255 / 100, 0, 255) : 220;
-    options.width = 900;
-    options.height = 600;
-
-    const Analysis::HeatmapRenderResult result = generator.generate(frequencyData_, options);
-    if (!result.ok || result.image.isNull()) {
-        const QString message = !result.error.isEmpty() ? result.error : generator.lastError();
-        appendLog(QStringLiteral("生成热力图失败：%1").arg(message));
+    if (!refreshHeatmapPreview()) {
+        const QString message = QStringLiteral("生成热力图失败，请检查 Trace/频率与数据范围。");
+        appendLog(message);
         QMessageBox::warning(this, QStringLiteral("无法显示热力图"), message);
         return;
     }
-
-    currentHeatmapImage_ = result.image;
-    currentColorbarImage_ = result.colorbar;
-    currentVmin_ = result.actualVmin;
-    currentVmax_ = result.actualVmax;
-
-    if (options.autoRange) {
-        if (vminSpin_) {
-            const QSignalBlocker blocker(vminSpin_);
-            vminSpin_->setValue(currentVmin_);
-        }
-        if (vmaxSpin_) {
-            const QSignalBlocker blocker(vmaxSpin_);
-            vmaxSpin_->setValue(currentVmax_);
-        }
-    }
-
-    if (heatmapView_) {
-        heatmapView_->setOpacityPercent(opacitySlider_ ? opacitySlider_->value() : 85);
-        heatmapView_->setHeatmapImage(currentHeatmapImage_);
-    }
-    updateColorbarDisplay();
 
     const QString title = QStringLiteral("%1 | %2 | %3")
                               .arg(traceId,
                                    frequencyCombo_ ? frequencyCombo_->currentText() : QStringLiteral("Frequency"),
                                    displayModeCombo_ ? displayModeCombo_->currentText() : QStringLiteral("幅度"));
     appendLog(QStringLiteral("热力图已生成：LUT=%1，范围=%2 ~ %3，透明度=%4%")
-                  .arg(options.lutName,
-                       QString::number(currentVmin_, 'g', 6),
-                       QString::number(currentVmax_, 'g', 6),
+                  .arg(lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo"),
+                       QString::number(analysisController_->vmin(), 'g', 6),
+                       QString::number(analysisController_->vmax(), 'g', 6),
                        QString::number(opacitySlider_ ? opacitySlider_->value() : 85)));
 
-    HeatmapDialog dialog(currentHeatmapImage_, currentColorbarImage_, title, currentVmin_, currentVmax_, this);
+    HeatmapDialog dialog(analysisController_->heatmapImage(),
+                         analysisController_->colorbarImage(),
+                         title,
+                         analysisController_->vmin(),
+                         analysisController_->vmax(),
+                         this);
     dialog.exec();
+}
+
+void MainWindow::scheduleHeatmapPreviewRefresh()
+{
+    if (!analysisController_ || !analysisController_->frequencyData().isValid()) {
+        return;
+    }
+    analysisController_->scheduleRefresh(buildAnalysisParams());
+}
+
+bool MainWindow::refreshHeatmapPreview()
+{
+    if (!analysisController_) {
+        return false;
+    }
+    return analysisController_->refreshPreview(buildAnalysisParams(), nullptr);
+}
+
+void MainWindow::applyHeatmapPreviewToCanvases()
+{
+    if (!analysisController_) {
+        return;
+    }
+    const int opacity = opacitySlider_ ? opacitySlider_->value() : 85;
+    const QImage heatmap = analysisController_->heatmapImage();
+    if (heatmapView_) {
+        heatmapView_->setOpacityPercent(opacity);
+        heatmapView_->setHeatmapImage(heatmap);
+    }
+    if (analysisPage_ && analysisPage_->previewCanvas()) {
+        analysisPage_->previewCanvas()->setOpacityPercent(opacity);
+        analysisPage_->previewCanvas()->setHeatmapImage(heatmap);
+    }
+}
+
+void MainWindow::updateHeatmapCursorReadout(double worldX, double worldY, bool insideImage)
+{
+    if (!analysisPage_ || !analysisPage_->hintLabel()) {
+        return;
+    }
+
+    if (!insideImage || !analysisController_ || !analysisController_->frequencyData().isValid()) {
+        analysisPage_->hintLabel()->setText(
+            QStringLiteral("分析工作区：加载 traces.csv 后在此预览热力图。移动鼠标查看坐标与读数。"));
+        return;
+    }
+
+    const QString traceId = traceCombo_ ? traceCombo_->currentText() : QString();
+    const int freqIndex = frequencyCombo_ ? frequencyCombo_->currentIndex() : -1;
+    const auto &frequencyData = analysisController_->frequencyData();
+    const QVector<double> zs = frequencyData.zs();
+    const double z = zs.isEmpty() ? 0.0 : zs.first();
+    const QString mode = selectedDisplayMode();
+
+    QString valueText = QStringLiteral("—");
+    if (!traceId.isEmpty() && freqIndex >= 0 && frequencyData.hasValue(worldX, worldY, z, traceId)) {
+        const double value = frequencyData.scalarValue(worldX, worldY, z, traceId, freqIndex, mode);
+        valueText = QString::number(value, 'g', 6);
+    }
+
+    analysisPage_->hintLabel()->setText(
+        QStringLiteral("光标：X=%1 mm  Y=%2 mm  Z=%3 mm  |  %4 = %5")
+            .arg(QString::number(worldX, 'f', 2),
+                 QString::number(worldY, 'f', 2),
+                 QString::number(z, 'f', 2),
+                 displayModeCombo_ ? displayModeCombo_->currentText() : QStringLiteral("值"),
+                 valueText));
 }
 
 void MainWindow::updateColorbarDisplay()
@@ -1175,18 +1809,19 @@ void MainWindow::updateColorbarDisplay()
 
     const QString lutName = lutCombo_ ? lutCombo_->currentText() : QStringLiteral("turbo");
     const int alpha = opacitySlider_ ? std::clamp(opacitySlider_->value() * 255 / 100, 0, 255) : 220;
-    const QImage source = currentColorbarImage_.isNull()
+    const QImage colorbar = analysisController_ ? analysisController_->colorbarImage() : QImage();
+    const QImage source = colorbar.isNull()
         ? Analysis::LutManager::createColorbar(lutName, 28, 120, alpha)
-        : currentColorbarImage_;
+        : colorbar;
 
     colorbarLabel_->setPixmap(QPixmap::fromImage(source)
                                   .scaled(colorbarLabel_->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 
     if (colorbarMinLabel_) {
-        colorbarMinLabel_->setText(QString::number(currentVmin_, 'g', 6));
+        colorbarMinLabel_->setText(QString::number(analysisController_ ? analysisController_->vmin() : 0.0, 'g', 6));
     }
     if (colorbarMaxLabel_) {
-        colorbarMaxLabel_->setText(QString::number(currentVmax_, 'g', 6));
+        colorbarMaxLabel_->setText(QString::number(analysisController_ ? analysisController_->vmax() : 1.0, 'g', 6));
     }
 }
 
@@ -1199,21 +1834,20 @@ void MainWindow::updateOpacityLabel(int percent)
     if (heatmapView_) {
         heatmapView_->setOpacityPercent(safePercent);
     }
+    if (analysisPage_ && analysisPage_->previewCanvas()) {
+        analysisPage_->previewCanvas()->setOpacityPercent(safePercent);
+    }
 }
 
 void MainWindow::clearCurrentAnalyzer()
 {
-    if (!currentAnalyzer_) {
-        return;
-    }
-
     if (scanManager_) {
         scanManager_->setSpectrumAnalyzer(nullptr);
     }
-    if (currentAnalyzer_->isConnected()) {
-        currentAnalyzer_->disconnectDevice();
+    if (deviceManager_) {
+        deviceManager_->disconnectSpectrumAnalyzer();
+        deviceManager_->releaseSpectrumAnalyzer();
     }
-    currentAnalyzer_->deleteLater();
     currentAnalyzer_ = nullptr;
     updateAnalyzerButtons(false);
 }
@@ -1222,23 +1856,10 @@ void MainWindow::connectSpectrumAnalyzer()
 {
     const QString analyzerName = analyzerTypeCombo_ ? analyzerTypeCombo_->currentText() : QStringLiteral("Mock Spectrum");
     clearCurrentAnalyzer();
-    currentAnalyzer_ = Devices::Spectrum::SpectrumAnalyzerFactory::create(analyzerName, this);
-
-    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::logMessage,
-            this, &MainWindow::appendLog);
-    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::errorOccurred,
-            this, [this](const QString &message) {
-                appendLog(QStringLiteral("频谱仪错误：%1").arg(message));
-            });
-    connect(currentAnalyzer_, &Devices::Spectrum::ISpectrumAnalyzer::connectedChanged,
-            this, [this](bool connected) {
-                updateAnalyzerButtons(connected);
-                if (deviceDiscoveryLabel_) {
-                    deviceDiscoveryLabel_->setText(connected
-                                                       ? QStringLiteral("发现 %1").arg(currentAnalyzer_ ? currentAnalyzer_->name() : QStringLiteral("仪表"))
-                                                       : QStringLiteral("未连接频谱仪"));
-                }
-            });
+    if (!deviceManager_ || !deviceManager_->createSpectrumAnalyzer(analyzerName)) {
+        appendLog(QStringLiteral("频谱仪创建失败：%1").arg(deviceManager_ ? deviceManager_->lastError() : QString()));
+        return;
+    }
 
     bool portOk = false;
     const int port = analyzerPortEdit_ ? analyzerPortEdit_->text().toInt(&portOk) : 5025;
@@ -1246,49 +1867,62 @@ void MainWindow::connectSpectrumAnalyzer()
     options.insert(QStringLiteral("host"), analyzerHostEdit_ ? analyzerHostEdit_->text().trimmed() : QString());
     options.insert(QStringLiteral("port"), portOk ? port : 5025);
 
-    if (!currentAnalyzer_->connectDevice(options)) {
-        const QString message = currentAnalyzer_->lastError().isEmpty()
+    if (!deviceManager_->connectSpectrumAnalyzer(options)) {
+        const QString message = deviceManager_->lastError().isEmpty()
             ? QStringLiteral("频谱仪连接失败。")
-            : currentAnalyzer_->lastError();
+            : deviceManager_->lastError();
         appendLog(QStringLiteral("频谱仪连接失败：%1").arg(message));
         QMessageBox::warning(this, QStringLiteral("频谱仪连接失败"), message);
         updateAnalyzerButtons(false);
         return;
     }
 
+    currentAnalyzer_ = deviceManager_->spectrumAnalyzer();
+    if (scanManager_) {
+        scanManager_->setSpectrumAnalyzer(currentAnalyzer_);
+    }
     currentSpectrumConfig_ = readSpectrumConfig();
-    appendLog(QStringLiteral("频谱仪已连接：%1").arg(currentAnalyzer_->name()));
+    appendLog(QStringLiteral("频谱仪已连接（设备线程）：%1").arg(currentAnalyzer_ ? currentAnalyzer_->name() : analyzerName));
     updateAnalyzerButtons(true);
+    if (deviceStatusBar_) {
+        deviceStatusBar_->refresh();
+    }
 }
 
 void MainWindow::disconnectSpectrumAnalyzer()
 {
-    if (!currentAnalyzer_) {
-        appendLog(QStringLiteral("当前没有已创建的频谱仪连接。"));
-        updateAnalyzerButtons(false);
-        return;
+    if (deviceManager_) {
+        deviceManager_->disconnectSpectrumAnalyzer();
     }
-
-    const QString name = currentAnalyzer_->name();
-    currentAnalyzer_->disconnectDevice();
-    appendLog(QStringLiteral("频谱仪已断开：%1").arg(name));
+    if (currentAnalyzer_) {
+        appendLog(QStringLiteral("频谱仪已断开：%1").arg(currentAnalyzer_->name()));
+    } else {
+        appendLog(QStringLiteral("当前没有已创建的频谱仪连接。"));
+    }
+    currentAnalyzer_ = nullptr;
+    if (scanManager_) {
+        scanManager_->setSpectrumAnalyzer(nullptr);
+    }
     updateAnalyzerButtons(false);
+    if (deviceStatusBar_) {
+        deviceStatusBar_->refresh();
+    }
 }
 
 void MainWindow::querySpectrumIdn()
 {
-    if (!currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
+    if (!deviceManager_ || !currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
         const QString message = QStringLiteral("请先连接频谱仪。");
         appendLog(message);
         QMessageBox::warning(this, QStringLiteral("频谱仪未连接"), message);
         return;
     }
 
-    const QString idn = currentAnalyzer_->queryIdn();
+    const QString idn = deviceManager_->querySpectrumIdn();
     if (idn.isEmpty()) {
-        const QString message = currentAnalyzer_->lastError().isEmpty()
+        const QString message = deviceManager_->lastError().isEmpty()
             ? QStringLiteral("IDN 查询无返回。")
-            : currentAnalyzer_->lastError();
+            : deviceManager_->lastError();
         appendLog(QStringLiteral("IDN 查询失败：%1").arg(message));
         QMessageBox::warning(this, QStringLiteral("IDN 查询失败"), message);
         return;
@@ -1299,7 +1933,7 @@ void MainWindow::querySpectrumIdn()
 
 void MainWindow::applySpectrumConfig()
 {
-    if (!currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
+    if (!deviceManager_ || !currentAnalyzer_ || !currentAnalyzer_->isConnected()) {
         const QString message = QStringLiteral("请先连接仪表。");
         appendLog(message);
         QMessageBox::warning(this, QStringLiteral("频谱仪未连接"), message);
@@ -1307,10 +1941,10 @@ void MainWindow::applySpectrumConfig()
     }
 
     currentSpectrumConfig_ = readSpectrumConfig();
-    if (!currentAnalyzer_->configure(currentSpectrumConfig_)) {
-        const QString message = currentAnalyzer_->lastError().isEmpty()
+    if (!deviceManager_->configureSpectrum(currentSpectrumConfig_)) {
+        const QString message = deviceManager_->lastError().isEmpty()
             ? QStringLiteral("应用仪表配置失败。")
-            : currentAnalyzer_->lastError();
+            : deviceManager_->lastError();
         appendLog(QStringLiteral("应用仪表配置失败：%1").arg(message));
         QMessageBox::warning(this, QStringLiteral("配置失败"), message);
         return;
@@ -1732,26 +2366,29 @@ void MainWindow::startScan()
         return;
     }
 
-    syncStepInputsToTable();
+    if (currentPage_ != AppPage::Scan) {
+        appendLog(QStringLiteral("请切换到扫描页后开始扫描。"));
+        switchToPage(AppPage::Scan);
+        return;
+    }
 
-    Core::ScanConfig config;
-    config.startX = scanTableValue(0, 0.0);
-    config.startY = scanTableValue(1, 0.0);
-    config.startZ = scanTableValue(2, 1.0);
-    config.endX = scanTableValue(3, 10.0);
-    config.endY = scanTableValue(4, 10.0);
-    config.endZ = scanTableValue(5, 1.0);
-    config.stepX = scanTableValue(6, 1.0);
-    config.stepY = scanTableValue(7, 1.0);
-    config.stepZ = scanTableValue(8, 1.0);
-    config.feed = feedValue();
-    config.dwellMs = dwellTimeSpinBox_ ? dwellTimeSpinBox_->value() : 100;
-    config.snakeMode = !snakeModeCheck_ || snakeModeCheck_->isChecked();
-    config.projectName = projectNameEdit_ ? projectNameEdit_->text().trimmed() : QString();
-    config.testName = testNameEdit_ ? testNameEdit_->text().trimmed() : QString();
-    config.outputDir = resultDirEdit_ && !resultDirEdit_->text().trimmed().isEmpty()
-        ? resultDirEdit_->text().trimmed()
-        : QStringLiteral("data/scans");
+    syncStepInputsToTable();
+    const Core::ScanConfig config = readScanConfigFromUi();
+
+    Core::ScanPathPlanner planner;
+    const QVector<Core::ScanPoint> previewPoints = planner.generate(config);
+    if (previewPoints.isEmpty()) {
+        const QString message = planner.lastError().isEmpty()
+            ? QStringLiteral("扫描路径生成失败，请检查参数。")
+            : planner.lastError();
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("无法开始扫描"), message);
+        return;
+    }
+    applyPathPreviewToCanvas(config, previewPoints);
+    appendLog(QStringLiteral("扫描路径：共 %1 个点（蛇形：%2）")
+                  .arg(previewPoints.size())
+                  .arg(config.snakeMode ? QStringLiteral("是") : QStringLiteral("否")));
 
     const bool useRealMotion = !isMockMode();
     if (useRealMotion && (!motionController_ || !motionController_->isOpen())) {
@@ -1869,6 +2506,144 @@ void MainWindow::updateActionButtons()
     pauseScanButton_->setText(paused ? QStringLiteral("继续") : QStringLiteral("暂停"));
     pauseScanButton_->setEnabled(running || paused);
     stopScanButton_->setEnabled(preparing || running || paused);
+    setScanParamsLocked(preparing || running || paused || stopping);
+}
+
+Core::ScanConfig MainWindow::readScanConfigFromUi() const
+{
+    Core::ScanConfig config;
+    config.startX = scanTableValue(0, 0.0);
+    config.startY = scanTableValue(1, 0.0);
+    config.startZ = scanTableValue(2, 1.0);
+    config.endX = scanTableValue(3, 10.0);
+    config.endY = scanTableValue(4, 10.0);
+    config.endZ = scanTableValue(5, 1.0);
+    config.stepX = scanTableValue(6, 1.0);
+    config.stepY = scanTableValue(7, 1.0);
+    config.stepZ = scanTableValue(8, 1.0);
+    config.feed = feedValue();
+    config.dwellMs = dwellTimeSpinBox_ ? dwellTimeSpinBox_->value() : 100;
+    config.snakeMode = !snakeModeCheck_ || snakeModeCheck_->isChecked();
+    config.projectName = projectNameEdit_ ? projectNameEdit_->text().trimmed() : QString();
+    config.testName = testNameEdit_ ? testNameEdit_->text().trimmed() : QString();
+    config.outputDir = projectManager_ && projectManager_->hasOpenProject()
+        ? projectManager_->defaultScanOutputDir()
+        : (resultDirEdit_ && !resultDirEdit_->text().trimmed().isEmpty()
+               ? resultDirEdit_->text().trimmed()
+               : QStringLiteral("data/scans"));
+    return config;
+}
+
+void MainWindow::setScanParamsLocked(bool locked)
+{
+    if (scanTable_) {
+        scanTable_->setEnabled(!locked);
+    }
+    if (stepXEdit_) {
+        stepXEdit_->setEnabled(!locked);
+    }
+    if (stepYEdit_) {
+        stepYEdit_->setEnabled(!locked);
+    }
+    if (stepZEdit_) {
+        stepZEdit_->setEnabled(!locked);
+    }
+    if (snakeModeCheck_) {
+        snakeModeCheck_->setEnabled(!locked);
+    }
+    if (dwellTimeSpinBox_) {
+        dwellTimeSpinBox_->setEnabled(!locked);
+    }
+    if (projectNameEdit_) {
+        projectNameEdit_->setEnabled(!locked);
+    }
+    if (testNameEdit_) {
+        testNameEdit_->setEnabled(!locked);
+    }
+}
+
+void MainWindow::previewScanPath()
+{
+    syncStepInputsToTable();
+    const Core::ScanConfig config = readScanConfigFromUi();
+    Core::ScanPathPlanner planner;
+    const QVector<Core::ScanPoint> points = planner.generate(config);
+    if (points.isEmpty()) {
+        const QString message = planner.lastError().isEmpty()
+            ? QStringLiteral("路径预览失败。")
+            : planner.lastError();
+        appendLog(message);
+        QMessageBox::warning(this, QStringLiteral("路径预览"), message);
+        return;
+    }
+    applyPathPreviewToCanvas(config, points);
+    appendLog(QStringLiteral("路径预览：%1 个点。").arg(points.size()));
+}
+
+void MainWindow::applyPathPreviewToCanvas(const Core::ScanConfig &config, const QVector<Core::ScanPoint> &points)
+{
+    if (!heatmapView_) {
+        return;
+    }
+
+    const double xMin = std::min(config.startX, config.endX);
+    const double xMax = std::max(config.startX, config.endX);
+    const double yMin = std::min(config.startY, config.endY);
+    const double yMax = std::max(config.startY, config.endY);
+
+    QVector<QPointF> path;
+    path.reserve(points.size());
+    for (const Core::ScanPoint &point : points) {
+        path.append(QPointF(point.x, point.y));
+    }
+    heatmapView_->setScanRegionOverlay(xMin, yMin, xMax, yMax, path);
+    heatmapView_->setScanProgress(0, points.size());
+}
+
+void MainWindow::applyAlignmentToHeatmapView(const Core::AlignmentConfig &config)
+{
+    if (!heatmapView_) {
+        return;
+    }
+    if (config.backgroundImagePath.isEmpty()) {
+        return;
+    }
+    const QImage background(config.backgroundImagePath);
+    if (background.isNull()) {
+        appendLog(QStringLiteral("背景图加载失败：%1").arg(config.backgroundImagePath));
+        return;
+    }
+    heatmapView_->setBackgroundImage(background);
+}
+
+void MainWindow::saveAlignmentForTaskDir(const QString &taskDir, const Core::ScanConfig &config)
+{
+    if (taskDir.trimmed().isEmpty()) {
+        return;
+    }
+
+    Core::AlignmentConfig alignment = alignmentEditor_ && alignmentEditor_->manager()
+        ? alignmentEditor_->manager()->config()
+        : alignmentManager_.config();
+    alignment.enabled = true;
+    if (!alignmentEditor_) {
+        alignment.worldXMin = std::min(config.startX, config.endX);
+        alignment.worldXMax = std::max(config.startX, config.endX);
+        alignment.worldYMin = std::min(config.startY, config.endY);
+        alignment.worldYMax = std::max(config.startY, config.endY);
+        alignment.pixelXMin = 0.0;
+        alignment.pixelXMax = 640.0;
+        alignment.pixelYMin = 0.0;
+        alignment.pixelYMax = 480.0;
+    }
+    alignmentManager_.setConfig(alignment);
+
+    const QString path = QDir(taskDir).filePath(QStringLiteral("alignment.json"));
+    if (alignmentManager_.saveToFile(path)) {
+        appendLog(QStringLiteral("已写入 alignment.json：%1").arg(path));
+    } else {
+        appendLog(QStringLiteral("写入 alignment.json 失败：%1").arg(alignmentManager_.lastError()));
+    }
 }
 
 QVector<ScanPoint> MainWindow::buildMockScanPoints() const

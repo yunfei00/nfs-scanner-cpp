@@ -5,10 +5,12 @@
 
 #include "app/AppVersion.h"
 #include "core/ScanPoint.h"
+#include "devices/spectrum/SpectrumConfig.h"
 #include "ui/MainWindow.h"
 
 int main(int argc, char *argv[])
 {
+    // TODO(license): add offline machine-bound license manager before commercial delivery.
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral(APP_NAME));
     QApplication::setApplicationName(QStringLiteral("NFSScanner"));
@@ -16,6 +18,8 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
 
     qRegisterMetaType<NFSScanner::Core::ScanPoint>("NFSScanner::Core::ScanPoint");
+    qRegisterMetaType<NFSScanner::Devices::Spectrum::SpectrumConfig>(
+        "NFSScanner::Devices::Spectrum::SpectrumConfig");
 
     QFile styleFile(QStringLiteral(":/styles/app.qss"));
     if (styleFile.open(QIODevice::ReadOnly | QIODevice::Text)) {

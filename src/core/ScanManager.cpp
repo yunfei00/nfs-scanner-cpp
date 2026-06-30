@@ -5,7 +5,10 @@
 #include "devices/motion/IMotionController.h"
 #include "devices/motion/SerialMotionController.h"
 
+#include "devices/spectrum/SpectrumDeviceHost.h"
+
 #include <QDateTime>
+#include <QMetaObject>
 #include <QMetaType>
 #include <QVariantMap>
 
@@ -99,12 +102,29 @@ void ScanManager::startScan(const ScanConfig &config)
     fallbackSpectrum_.configure(spectrumConfig_);
     fallbackSpectrum_.connectDevice(QVariantMap{});
 
-    if (analyzer_ && analyzer_->isConnected() && !analyzer_->configure(spectrumConfig_)) {
-        const QString message = QStringLiteral("配置频谱仪失败：%1").arg(analyzer_->lastError());
-        points_.clear();
-        setState(ScanState::Error);
-        emit scanError(message);
-        return;
+    if (analyzer_ && analyzer_->isConnected()) {
+        bool configured = false;
+        if (spectrumDeviceHost_) {
+            QMetaObject::invokeMethod(spectrumDeviceHost_, "configureDevice", Qt::BlockingQueuedConnection,
+                                      Q_RETURN_ARG(bool, configured),
+                                      Q_ARG(Spectrum::SpectrumConfig, spectrumConfig_));
+            if (!configured) {
+                QString hostError;
+                QMetaObject::invokeMethod(spectrumDeviceHost_, "lastError", Qt::BlockingQueuedConnection,
+                                          Q_RETURN_ARG(QString, hostError));
+                const QString message = QStringLiteral("配置频谱仪失败：%1").arg(hostError);
+                points_.clear();
+                setState(ScanState::Error);
+                emit scanError(message);
+                return;
+            }
+        } else if (!analyzer_->configure(spectrumConfig_)) {
+            const QString message = QStringLiteral("配置频谱仪失败：%1").arg(analyzer_->lastError());
+            points_.clear();
+            setState(ScanState::Error);
+            emit scanError(message);
+            return;
+        }
     }
 
     if (!storage_.beginTask(config_, points_.size())) {
@@ -188,6 +208,16 @@ void ScanManager::stopScan()
 void ScanManager::setSpectrumAnalyzer(Spectrum::ISpectrumAnalyzer *analyzer)
 {
     analyzer_ = analyzer;
+}
+
+void ScanManager::setSpectrumDeviceHost(Spectrum::SpectrumDeviceHost *host)
+{
+    spectrumDeviceHost_ = host;
+}
+
+void ScanManager::setSpectrumDeviceThread(QThread *thread)
+{
+    sharedSpectrumDeviceThread_ = thread;
 }
 
 void ScanManager::setSpectrumConfig(const Spectrum::SpectrumConfig &config)
@@ -496,7 +526,8 @@ void ScanManager::setupAcquisitionThread()
 {
     shutdownAcquisitionThread(true);
 
-    acquisitionThread_ = new QThread(this);
+    acquisitionThread_ = sharedSpectrumDeviceThread_ ? sharedSpectrumDeviceThread_ : new QThread(this);
+    const bool ownsThread = acquisitionThread_ != sharedSpectrumDeviceThread_;
     acquisitionWorker_ = new Spectrum::SpectrumAcquisitionWorker;
     acquisitionWorker_->setAnalyzer(analyzer_);
     acquisitionWorker_->setFallbackAnalyzer(&fallbackSpectrum_);
@@ -504,7 +535,9 @@ void ScanManager::setupAcquisitionThread()
     acquisitionWorker_->setRetryCount(acquisitionOptions_.retryCount);
     acquisitionWorker_->moveToThread(acquisitionThread_);
 
-    connect(acquisitionThread_, &QThread::finished, acquisitionWorker_, &QObject::deleteLater);
+    if (ownsThread) {
+        connect(acquisitionThread_, &QThread::finished, acquisitionWorker_, &QObject::deleteLater);
+    }
     connect(this, &ScanManager::acquireSpectrumRequested,
             acquisitionWorker_, &Spectrum::SpectrumAcquisitionWorker::acquire,
             Qt::QueuedConnection);
@@ -522,13 +555,26 @@ void ScanManager::setupAcquisitionThread()
             this, &ScanManager::logMessage,
             Qt::QueuedConnection);
 
-    acquisitionThread_->start();
+    if (ownsThread) {
+        acquisitionThread_->start();
+    }
 }
 
 void ScanManager::shutdownAcquisitionThread(bool waitForFinish)
 {
     if (!acquisitionThread_) {
         acquisitionWorker_ = nullptr;
+        return;
+    }
+
+    const bool ownsThread = acquisitionThread_ != sharedSpectrumDeviceThread_;
+    if (acquisitionWorker_) {
+        acquisitionWorker_->deleteLater();
+        acquisitionWorker_ = nullptr;
+    }
+
+    if (!ownsThread) {
+        acquisitionThread_ = nullptr;
         return;
     }
 
@@ -544,7 +590,6 @@ void ScanManager::shutdownAcquisitionThread(bool waitForFinish)
 
     acquisitionThread_->deleteLater();
     acquisitionThread_ = nullptr;
-    acquisitionWorker_ = nullptr;
 }
 
 void ScanManager::finishScan()

@@ -1,8 +1,21 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 重构工程。当前阶段聚焦于可运行、可演示、可继续扩展的桌面主界面、运动控制和扫描流程控制，暂不接入真实频谱仪、相机或 OpenCV。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前版本提供四页产品主框架、真实运动/频谱扫描、项目文件夹、离线分析、报告导出与 Demo 授权，并保留完整 Mock fallback。
 
 ## 当前版本
+
+### v0.10.0 产品化迁移版本（nfs-scanner-pro → C++）
+
+- 四页主框架：扫描 / 设备 / 分析 / 报告（Project 仅文件菜单，非一级导航）。
+- 独立页面类：`ScanPage`、`DevicePage`、`AnalysisPage`、`ReportPage`。
+- `DeviceManager` 统一管理运动、频谱仪、Mock Camera。
+- `ProjectManager` 支持项目文件夹（`project.json`、`scans/`、`reports/` 等）。
+- `AlignmentManager` + `AlignmentEditor` 矩形线性映射（无 OpenCV 依赖）。
+- `ReportGenerator` 支持 HTML / Markdown / PNG 集合导出。
+- `LicenseManager` Demo 授权（machine_id + license.json 占位校验）。
+- 命令行自检：`NFSScannerSelfCheck.exe`。
+- 迁移文档：`docs/migration/`（审计、Backlog、自测清单）。
+- 保留 v0.9.0 全部真实设备、ScanManager、TaskStorage、热力图能力。
 
 ### v0.9.0 真实仪表与真实扫描逻辑迁移版本
 - 根据 Python 真实测试代码迁移 ZNA67 / FSW / N9020A 采集逻辑。
@@ -164,8 +177,15 @@ cmake --build build -j
 
 ## 当前功能
 
-- 主窗口标题为 `NFS Scanner v0.9.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
-- 左右两栏布局：左侧为串口设置、运动控制、运动命令、步长设置、测试说明和功能操作区；右侧为扫描区域、仪表区域、结果区域和日志区域。
+- 主窗口标题为 `NFS Scanner v0.10.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
+- 产品主框架：菜单栏 + 工具栏 + 左侧四页导航 + 中央画布 + 右侧参数 Dock + 底部状态栏。
+- 视图菜单控制日志/频谱/统计/数据表格 Dock（默认隐藏）。
+- 文件菜单：新建/打开/保存/另存为/最近项目。
+- 设备页：运动平台 + 频谱仪 + Mock Camera + 系统诊断。
+- 扫描页：`HeatmapView` 整图热力图（禁止逐格 Rect）。
+- 分析页：traces.csv 加载、Trace/频率/LUT/Colorbar、PNG 导出。
+- 报告页：报告列表 + 预览 + HTML 导出。
+- 项目文件夹：见 `docs/migration/MIGRATION_FROM_NFS_SCANNER_PRO.md` 第 9 节。
 - 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
 - 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
 - 扫描区域：1 行 9 列表格配置起点、终点和 step，支持蛇形扫描和驻留时间设置。
@@ -175,6 +195,57 @@ cmake --build build -j
 - 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并生成热力图。
 - 热力图增强：支持 LUT、Colorbar、自动/手动 vmin/vmax、透明度控制、主界面预览和弹窗导出 PNG。
 - 真实频谱仪框架：ScanManager 扫描时优先采集已连接仪表数据，未连接时自动使用 Mock Spectrum fallback，并支持 timeout/retry/stopOnError 策略。
+
+## 自检工具
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
+.\build\Release\NFSScannerSelfCheck.exe
+.\build\Release\NFSScanner.exe
+```
+
+## 项目文件夹结构
+
+```text
+ProjectName/
+  project.json
+  scans/
+    scan_YYYYMMDD_HHMMSS/
+      meta.json
+      scan_config.json
+      points.csv
+      traces.csv
+      alignment.json   # 可选
+  images/
+  reports/
+  logs/
+  exports/
+```
+
+无打开项目时使用 `%LOCALAPPDATA%/NFSScanner/workspace/scans/`。
+
+## Mock 模式
+
+- 运动：勾选「模拟模式」或 `DeviceManager` Mock 状态。
+- 频谱：未连接真实仪表时 `ScanManager` 自动 Mock Spectrum fallback。
+- 相机：`MockCamera` 可选，不影响扫描数据采集。
+
+## 真实硬件验证
+
+真实串口运动、ZNA67/FSW/N9020A SCPI、USB 相机、舵机 Hx/Hy 需现场人工验证，见 `docs/migration/SELF_TEST_CHECKLIST.md`。
+
+## 已知限制
+
+- PDF 报告导出尚未接入（避免 Qt PDF 模块构建风险）。
+- SCPI 连接仍在 UI 线程，采集在 `SpectrumAcquisitionWorker`（见 TODO(device-thread)）。
+- Alignment 仅矩形线性映射，透视标定为 TODO。
+- OpenCV / 真实 USB 相机驱动未引入。
+
+## 迁移文档
+
+- [MIGRATION_FROM_NFS_SCANNER_PRO.md](docs/migration/MIGRATION_FROM_NFS_SCANNER_PRO.md)
+- [IMPLEMENTATION_BACKLOG.md](docs/migration/IMPLEMENTATION_BACKLOG.md)
+- [SELF_TEST_CHECKLIST.md](docs/migration/SELF_TEST_CHECKLIST.md)
 
 ## Release 发布流程
 
@@ -198,8 +269,8 @@ NFSScanner-Windows-Release
 正式发布：
 
 ```powershell
-git tag v0.9.0
-git push origin v0.9.0
+git tag v0.10.0
+git push origin v0.10.0
 ```
 
 `Release` workflow 会自动构建，并在 GitHub Releases 页面生成：

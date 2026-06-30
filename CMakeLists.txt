@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.9.0
+    VERSION 0.10.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX
 )
@@ -13,21 +13,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network PrintSupport)
 
-set(PROJECT_SOURCES
-    src/main.cpp
-
+set(CORE_SOURCES
     src/app/AppContext.h
     src/app/AppContext.cpp
     src/app/AppVersion.h
-
-    src/ui/MainWindow.h
-    src/ui/MainWindow.cpp
-    src/ui/HeatmapDialog.h
-    src/ui/HeatmapDialog.cpp
-    src/ui/HeatmapView.h
-    src/ui/HeatmapView.cpp
 
     src/core/ScanConfig.h
     src/core/ScanConfig.cpp
@@ -41,12 +32,22 @@ set(PROJECT_SOURCES
     src/core/ScanManager.cpp
     src/core/ScanWorker.h
     src/core/ScanWorker.cpp
+    src/core/DeviceManager.h
+    src/core/DeviceManager.cpp
+    src/core/AlignmentConfig.h
+    src/core/AlignmentConfig.cpp
+    src/core/AlignmentManager.h
+    src/core/AlignmentManager.cpp
 
     src/devices/motion/IMotionController.h
     src/devices/motion/MockMotionController.h
     src/devices/motion/MockMotionController.cpp
     src/devices/motion/SerialMotionController.h
     src/devices/motion/SerialMotionController.cpp
+
+    src/devices/camera/ICamera.h
+    src/devices/camera/MockCamera.h
+    src/devices/camera/MockCamera.cpp
 
     src/devices/spectrum/ISpectrumAnalyzer.h
     src/devices/spectrum/SpectrumConfig.h
@@ -71,6 +72,23 @@ set(PROJECT_SOURCES
     src/devices/spectrum/N9020aSpectrumAnalyzer.cpp
     src/devices/spectrum/SpectrumAnalyzerFactory.h
     src/devices/spectrum/SpectrumAnalyzerFactory.cpp
+    src/devices/spectrum/SpectrumDeviceHost.h
+    src/devices/spectrum/SpectrumDeviceHost.cpp
+
+    src/project/Project.h
+    src/project/Project.cpp
+    src/project/ProjectManager.h
+    src/project/ProjectManager.cpp
+
+    src/report/ReportData.h
+    src/report/ReportData.cpp
+    src/report/ReportGenerator.h
+    src/report/ReportGenerator.cpp
+
+    src/license/MachineId.h
+    src/license/MachineId.cpp
+    src/license/LicenseManager.h
+    src/license/LicenseManager.cpp
 
     src/storage/TaskStorage.h
     src/storage/TaskStorage.cpp
@@ -86,38 +104,70 @@ set(PROJECT_SOURCES
 
     src/infra/Logger.h
     src/infra/Logger.cpp
+)
 
+set(UI_SOURCES
+    src/ui/MainWindow.h
+    src/ui/MainWindow.cpp
+    src/ui/HeatmapDialog.h
+    src/ui/HeatmapDialog.cpp
+    src/ui/HeatmapView.h
+    src/ui/HeatmapView.cpp
+    src/ui/pages/ScanPage.h
+    src/ui/pages/ScanPage.cpp
+    src/ui/pages/DevicePage.h
+    src/ui/pages/DevicePage.cpp
+    src/ui/pages/AnalysisPage.h
+    src/ui/pages/AnalysisPage.cpp
+    src/ui/pages/ReportPage.h
+    src/ui/pages/ReportPage.cpp
+    src/ui/AlignmentEditor.h
+    src/ui/AlignmentEditor.cpp
+    src/ui/AnalysisController.h
+    src/ui/AnalysisController.cpp
+    src/ui/DeviceStatusBar.h
+    src/ui/DeviceStatusBar.cpp
+)
+
+add_executable(NFSScanner
+    src/main.cpp
+    ${CORE_SOURCES}
+    ${UI_SOURCES}
     resources/app.qrc
 )
 
-add_executable(NFSScanner ${PROJECT_SOURCES})
-
-set_target_properties(NFSScanner PROPERTIES
-    OUTPUT_NAME NFSScanner
+add_executable(NFSScannerSelfCheck
+    src/tools/self_check.cpp
+    ${CORE_SOURCES}
 )
 
-target_include_directories(NFSScanner
-    PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
+set_target_properties(NFSScanner PROPERTIES OUTPUT_NAME NFSScanner)
+set_target_properties(NFSScannerSelfCheck PROPERTIES OUTPUT_NAME NFSScannerSelfCheck)
 
-target_link_libraries(NFSScanner
-    PRIVATE
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Network
-        Qt6::SerialPort
-        Qt6::Widgets
-)
-
-if(MSVC)
-    target_compile_options(NFSScanner PRIVATE /utf-8)
-endif()
+foreach(target NFSScanner NFSScannerSelfCheck)
+    target_include_directories(${target}
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(${target}
+        PRIVATE
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Network
+            Qt6::SerialPort
+            Qt6::Widgets
+    )
+    if(target STREQUAL "NFSScanner")
+        target_link_libraries(${target} PRIVATE Qt6::PrintSupport)
+    endif()
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /utf-8)
+    endif()
+endforeach()
 
 if(WIN32)
     set_target_properties(NFSScanner PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-install(TARGETS NFSScanner
+install(TARGETS NFSScanner NFSScannerSelfCheck
     RUNTIME DESTINATION bin
 )

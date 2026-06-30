@@ -1,8 +1,10 @@
 #include "ui/HeatmapView.h"
 
 #include <QColor>
+#include <QEvent>
 #include <QFont>
 #include <QLinearGradient>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPaintEvent>
@@ -72,13 +74,149 @@ void HeatmapView::clearHeatmapImage()
     cachedMockHeatmap_ = {};
     cachedMockSize_ = {};
     cachedProgress_ = -1.0;
+    clearScanRegionOverlay();
     update();
+}
+
+void HeatmapView::setScanRegionOverlay(double xMin, double yMin, double xMax, double yMax,
+                                       const QVector<QPointF> &pathPoints)
+{
+    regionXMin_ = xMin;
+    regionYMin_ = yMin;
+    regionXMax_ = xMax;
+    regionYMax_ = yMax;
+    pathPoints_ = pathPoints;
+    scanOverlayVisible_ = true;
+    update();
+}
+
+void HeatmapView::clearScanRegionOverlay()
+{
+    scanOverlayVisible_ = false;
+    pathPoints_.clear();
 }
 
 void HeatmapView::setOpacityPercent(int percent)
 {
     opacityPercent_ = std::clamp(percent, 0, 100);
     update();
+}
+
+void HeatmapView::setGridMapping(const GridMapping &mapping)
+{
+    gridMapping_ = mapping;
+}
+
+void HeatmapView::clearGridMapping()
+{
+    gridMapping_ = {};
+}
+
+void HeatmapView::setCrosshairEnabled(bool enabled)
+{
+    crosshairEnabled_ = enabled;
+    setMouseTracking(enabled);
+    if (!enabled) {
+        cursorInsideImage_ = false;
+    }
+    update();
+}
+
+void HeatmapView::setBackgroundImage(const QImage &image)
+{
+    backgroundImage_ = image;
+    update();
+}
+
+void HeatmapView::clearBackgroundImage()
+{
+    backgroundImage_ = {};
+    update();
+}
+
+void HeatmapView::mouseMoveEvent(QMouseEvent *event)
+{
+    if (!crosshairEnabled_ || externalHeatmapImage_.isNull()) {
+        QWidget::mouseMoveEvent(event);
+        return;
+    }
+
+    updateCursorFromPosition(event->position());
+    update();
+    QWidget::mouseMoveEvent(event);
+}
+
+void HeatmapView::leaveEvent(QEvent *event)
+{
+    if (cursorInsideImage_) {
+        cursorInsideImage_ = false;
+        emit cursorSampleChanged(0.0, 0.0, false);
+        update();
+    }
+    QWidget::leaveEvent(event);
+}
+
+QRectF HeatmapView::externalHeatmapRect() const
+{
+    if (externalHeatmapImage_.isNull()) {
+        return {};
+    }
+
+    const QRectF bounds = QRectF(rect()).adjusted(28.0, 48.0, -28.0, -28.0);
+    const QSizeF imageSize = externalHeatmapImage_.size();
+    const double scale = std::min(bounds.width() / std::max(1.0, imageSize.width()),
+                                  bounds.height() / std::max(1.0, imageSize.height()));
+    const QSizeF targetSize(imageSize.width() * scale, imageSize.height() * scale);
+    return QRectF(bounds.center().x() - targetSize.width() / 2.0,
+                  bounds.center().y() - targetSize.height() / 2.0,
+                  targetSize.width(),
+                  targetSize.height());
+}
+
+void HeatmapView::updateCursorFromPosition(const QPointF &pos)
+{
+    const QRectF imageRect = externalHeatmapRect();
+    cursorPos_ = pos;
+    const bool inside = imageRect.contains(pos);
+    if (!inside || !gridMapping_.isValid()) {
+        if (cursorInsideImage_) {
+            cursorInsideImage_ = false;
+            emit cursorSampleChanged(0.0, 0.0, false);
+        }
+        return;
+    }
+
+    cursorInsideImage_ = true;
+    const double u = std::clamp((pos.x() - imageRect.left()) / std::max(1.0, imageRect.width()), 0.0, 1.0);
+    const double v = std::clamp((pos.y() - imageRect.top()) / std::max(1.0, imageRect.height()), 0.0, 1.0);
+
+    const int cols = gridMapping_.xs.size();
+    const int rows = gridMapping_.ys.size();
+    const int col = std::clamp(static_cast<int>(std::lround(u * (cols - 1))), 0, cols - 1);
+    const int rowFromTop = std::clamp(static_cast<int>(std::lround(v * (rows - 1))), 0, rows - 1);
+    const int dataRow = rows - 1 - rowFromTop;
+
+    emit cursorSampleChanged(gridMapping_.xs.at(col), gridMapping_.ys.at(dataRow), true);
+}
+
+void HeatmapView::drawCrosshair(QPainter &painter, const QRectF &imageRect) const
+{
+    if (!crosshairEnabled_ || !cursorInsideImage_ || !imageRect.contains(cursorPos_)) {
+        return;
+    }
+
+    painter.save();
+    painter.setClipRect(imageRect);
+    QPen pen(QColor(255, 255, 255, 210), 1.0, Qt::DashLine);
+    painter.setPen(pen);
+    painter.drawLine(QPointF(imageRect.left(), cursorPos_.y()), QPointF(imageRect.right(), cursorPos_.y()));
+    painter.drawLine(QPointF(cursorPos_.x(), imageRect.top()), QPointF(cursorPos_.x(), imageRect.bottom()));
+
+    painter.setPen(QPen(QColor(15, 18, 24), 3.0));
+    painter.drawPoint(cursorPos_);
+    painter.setPen(QPen(QColor(255, 255, 255, 240), 1.5));
+    painter.drawPoint(cursorPos_);
+    painter.restore();
 }
 
 void HeatmapView::paintEvent(QPaintEvent *event)
@@ -92,20 +230,15 @@ void HeatmapView::paintEvent(QPaintEvent *event)
     drawGrid(painter, QRectF(rect()));
 
     if (!externalHeatmapImage_.isNull()) {
-        const QRectF bounds = QRectF(rect()).adjusted(28.0, 48.0, -28.0, -28.0);
-        const QSizeF imageSize = externalHeatmapImage_.size();
-        const double scale = std::min(bounds.width() / std::max(1.0, imageSize.width()),
-                                      bounds.height() / std::max(1.0, imageSize.height()));
-        const QSizeF targetSize(imageSize.width() * scale, imageSize.height() * scale);
-        const QRectF target(bounds.center().x() - targetSize.width() / 2.0,
-                            bounds.center().y() - targetSize.height() / 2.0,
-                            targetSize.width(),
-                            targetSize.height());
+        const QRectF target = externalHeatmapRect();
+        cachedExternalHeatmapRect_ = target;
 
         painter.save();
         painter.setOpacity(static_cast<double>(opacityPercent_) / 100.0);
         painter.drawImage(target, externalHeatmapImage_);
         painter.restore();
+
+        drawCrosshair(painter, target);
 
         painter.setPen(QPen(QColor(95, 116, 139), 1.4));
         painter.setBrush(Qt::NoBrush);
@@ -135,11 +268,17 @@ void HeatmapView::paintEvent(QPaintEvent *event)
     painter.save();
     painter.setClipPath(cameraPath);
 
+    if (!backgroundImage_.isNull()) {
+        painter.drawImage(camera, backgroundImage_.scaled(camera.size().toSize(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+    }
+
     QLinearGradient cameraGradient(camera.topLeft(), camera.bottomRight());
     cameraGradient.setColorAt(0.0, QColor(30, 36, 44));
     cameraGradient.setColorAt(0.45, QColor(19, 23, 30));
     cameraGradient.setColorAt(1.0, QColor(35, 39, 43));
-    painter.fillRect(camera, cameraGradient);
+    if (backgroundImage_.isNull()) {
+        painter.fillRect(camera, cameraGradient);
+    }
 
     painter.setPen(QPen(QColor(255, 255, 255, 28), 1));
     const double cell = 28.0 * zoomFactor_;
@@ -157,6 +296,8 @@ void HeatmapView::paintEvent(QPaintEvent *event)
         painter.drawImage(heatmapRect, heatmap);
         painter.setOpacity(1.0);
     }
+
+    drawScanOverlay(painter, camera);
 
     const double progress = totalPoints_ > 0
         ? std::clamp(static_cast<double>(currentPoint_) / static_cast<double>(totalPoints_), 0.0, 1.0)
@@ -211,6 +352,43 @@ void HeatmapView::drawGrid(QPainter &painter, const QRectF &rect) const
     }
 
     painter.restore();
+}
+
+void HeatmapView::drawScanOverlay(QPainter &painter, const QRectF &cameraRect) const
+{
+    if (!scanOverlayVisible_) {
+        return;
+    }
+
+    const QRectF plotRect = cameraRect.adjusted(24.0, 24.0, -24.0, -24.0);
+    const double spanX = std::max(1e-9, regionXMax_ - regionXMin_);
+    const double spanY = std::max(1e-9, regionYMax_ - regionYMin_);
+
+    auto mapPoint = [&](double wx, double wy) -> QPointF {
+        const double u = (wx - regionXMin_) / spanX;
+        const double v = 1.0 - (wy - regionYMin_) / spanY;
+        return QPointF(plotRect.left() + u * plotRect.width(),
+                       plotRect.top() + v * plotRect.height());
+    };
+
+    const QPointF topLeft = mapPoint(regionXMin_, regionYMax_);
+    const QPointF bottomRight = mapPoint(regionXMax_, regionYMin_);
+    const QRectF regionRect = QRectF(topLeft, bottomRight).normalized();
+
+    painter.setPen(QPen(QColor(255, 255, 255, 220), 2.0));
+    painter.setBrush(QColor(255, 255, 255, 18));
+    painter.drawRect(regionRect);
+
+    if (pathPoints_.size() >= 2) {
+        QPainterPath path;
+        path.moveTo(mapPoint(pathPoints_.first().x(), pathPoints_.first().y()));
+        for (int i = 1; i < pathPoints_.size(); ++i) {
+            path.lineTo(mapPoint(pathPoints_.at(i).x(), pathPoints_.at(i).y()));
+        }
+        painter.setPen(QPen(QColor(56, 189, 248, 200), 1.5));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
+    }
 }
 
 QRectF HeatmapView::cameraRect() const

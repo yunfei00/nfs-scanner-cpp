@@ -143,6 +143,7 @@ QStringList LutManager::availableLuts()
         QStringLiteral("hot"),
         QStringLiteral("cool"),
         QStringLiteral("rainbow"),
+        QStringLiteral("cividis"),
     };
 }
 
@@ -174,6 +175,10 @@ QRgb LutManager::colorAt(const QString &lutName, double t, int alpha)
         const double g = 0.09140261 + x * (2.19418839 + x * (4.84296658 + x * (-14.18503333 + x * (4.27729857 + x * 2.82956604))));
         const double b = 0.10667330 + x * (12.64194608 + x * (-60.58204836 + x * (110.36276771 + x * (-89.90310912 + x * 27.34824973))));
         return rgba(r, g, b, safeAlpha);
+    }
+
+    if (name == QStringLiteral("cividis")) {
+        return colorFromStops(QStringLiteral("viridis"), value, safeAlpha);
     }
 
     return colorFromStops(name, value, safeAlpha);

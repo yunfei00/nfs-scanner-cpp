@@ -3,6 +3,8 @@ build/
 Build/
 build-*/
 out/
+dist/
+artifacts/
 
 # IDE and editor files
 .vs/

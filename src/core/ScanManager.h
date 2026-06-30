@@ -21,6 +21,10 @@ namespace NFSScanner::Devices::Motion {
 class IMotionController;
 }
 
+namespace NFSScanner::Devices::Spectrum {
+class SpectrumDeviceHost;
+}
+
 namespace NFSScanner::Core {
 
 enum class ScanState {
@@ -56,6 +60,8 @@ public:
     void resumeScan();
     void stopScan();
     void setSpectrumAnalyzer(NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer);
+    void setSpectrumDeviceHost(NFSScanner::Devices::Spectrum::SpectrumDeviceHost *host);
+    void setSpectrumDeviceThread(QThread *thread);
     void setSpectrumConfig(const NFSScanner::Devices::Spectrum::SpectrumConfig &config);
     void setAcquisitionOptions(const ScanAcquisitionOptions &options);
     void setMotionController(NFSScanner::Devices::Motion::IMotionController *motionController);
@@ -93,6 +99,8 @@ private:
     QVector<ScanPoint> points_;
     NFSScanner::Storage::TaskStorage storage_;
     NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *analyzer_ = nullptr;
+    NFSScanner::Devices::Spectrum::SpectrumDeviceHost *spectrumDeviceHost_ = nullptr;
+    QThread *sharedSpectrumDeviceThread_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumConfig spectrumConfig_;
     NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer fallbackSpectrum_;
     NFSScanner::Devices::Motion::IMotionController *motionController_ = nullptr;
