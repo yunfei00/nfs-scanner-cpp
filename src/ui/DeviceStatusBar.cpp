@@ -1,6 +1,8 @@
 #include "ui/DeviceStatusBar.h"
 
 #include "app/AppVersion.h"
+#include "license/LicenseManager.h"
+#include "project/ProjectManager.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -26,17 +28,21 @@ DeviceStatusBar::DeviceStatusBar(QWidget *parent)
     setObjectName(QStringLiteral("deviceStatusBar"));
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(8, 4, 8, 4);
-    layout->setSpacing(8);
+    layout->setSpacing(6);
 
     motionChip_ = makeChip(QStringLiteral("运动：—"), this);
     spectrumChip_ = makeChip(QStringLiteral("频谱：—"), this);
     cameraChip_ = makeChip(QStringLiteral("相机：—"), this);
-    systemChip_ = makeChip(QStringLiteral("系统：—"), this);
+    projectChip_ = makeChip(QStringLiteral("项目：—"), this);
+    licenseChip_ = makeChip(QStringLiteral("授权：—"), this);
+    scanChip_ = makeChip(QStringLiteral("扫描：空闲"), this);
 
     layout->addWidget(motionChip_);
     layout->addWidget(spectrumChip_);
     layout->addWidget(cameraChip_);
-    layout->addWidget(systemChip_);
+    layout->addWidget(projectChip_);
+    layout->addWidget(licenseChip_);
+    layout->addWidget(scanChip_);
     layout->addStretch(1);
 
     refresh();
@@ -47,51 +53,86 @@ void DeviceStatusBar::bindDeviceManager(NFSScanner::Core::DeviceManager *deviceM
     if (deviceManager_ == deviceManager) {
         return;
     }
-
     if (deviceManager_) {
         disconnect(deviceManager_, nullptr, this, nullptr);
     }
-
     deviceManager_ = deviceManager;
-    if (!deviceManager_) {
-        refresh();
+    if (deviceManager_) {
+        connect(deviceManager_, &NFSScanner::Core::DeviceManager::deviceStateChanged,
+                this, &DeviceStatusBar::refresh);
+    }
+    refresh();
+}
+
+void DeviceStatusBar::bindProjectManager(NFSScanner::Project::ProjectManager *projectManager)
+{
+    if (projectManager_ == projectManager) {
         return;
     }
+    if (projectManager_) {
+        disconnect(projectManager_, nullptr, this, nullptr);
+    }
+    projectManager_ = projectManager;
+    if (projectManager_) {
+        connect(projectManager_, &NFSScanner::Project::ProjectManager::projectChanged,
+                this, &DeviceStatusBar::refresh);
+    }
+    refresh();
+}
 
-    connect(deviceManager_, &NFSScanner::Core::DeviceManager::deviceStateChanged,
-            this, &DeviceStatusBar::refresh);
+void DeviceStatusBar::bindLicenseManager(NFSScanner::License::LicenseManager *licenseManager)
+{
+    licenseManager_ = licenseManager;
+    refresh();
+}
+
+void DeviceStatusBar::setScanStateText(const QString &text)
+{
+    scanStateText_ = text.isEmpty() ? QStringLiteral("空闲") : text;
     refresh();
 }
 
 void DeviceStatusBar::refresh()
 {
-    if (!deviceManager_) {
-        applyChipStyle(motionChip_, NFSScanner::Core::DeviceConnectionState::Disconnected);
-        applyChipStyle(spectrumChip_, NFSScanner::Core::DeviceConnectionState::Disconnected);
-        applyChipStyle(cameraChip_, NFSScanner::Core::DeviceConnectionState::Disconnected);
+    if (deviceManager_) {
+        motionChip_->setText(QStringLiteral("运动：%1")
+                                 .arg(NFSScanner::Core::deviceConnectionStateText(deviceManager_->motionState())));
+        spectrumChip_->setText(QStringLiteral("频谱：%1")
+                                   .arg(NFSScanner::Core::deviceConnectionStateText(deviceManager_->spectrumState())));
+        cameraChip_->setText(QStringLiteral("相机：%1")
+                                 .arg(NFSScanner::Core::deviceConnectionStateText(deviceManager_->cameraState())));
+        applyChipStyle(motionChip_, deviceManager_->motionState());
+        applyChipStyle(spectrumChip_, deviceManager_->spectrumState());
+        applyChipStyle(cameraChip_, deviceManager_->cameraState());
+    } else {
         motionChip_->setText(QStringLiteral("运动：—"));
         spectrumChip_->setText(QStringLiteral("频谱：—"));
         cameraChip_->setText(QStringLiteral("相机：—"));
-        systemChip_->setText(QStringLiteral("系统：v%1").arg(QStringLiteral(APP_VERSION)));
-        return;
     }
 
-    const auto motionState = deviceManager_->motionState();
-    const auto spectrumState = deviceManager_->spectrumState();
-    const auto cameraState = deviceManager_->cameraState();
+    if (projectManager_ && projectManager_->hasOpenProject()) {
+        projectChip_->setText(QStringLiteral("项目：%1").arg(projectManager_->currentProject().name));
+        applyChipStyle(projectChip_, NFSScanner::Core::DeviceConnectionState::Connected);
+    } else {
+        projectChip_->setText(QStringLiteral("项目：无"));
+        applyChipStyle(projectChip_, NFSScanner::Core::DeviceConnectionState::Disconnected);
+    }
 
-    motionChip_->setText(QStringLiteral("运动：%1")
-                             .arg(NFSScanner::Core::deviceConnectionStateText(motionState)));
-    spectrumChip_->setText(QStringLiteral("频谱：%1")
-                               .arg(NFSScanner::Core::deviceConnectionStateText(spectrumState)));
-    cameraChip_->setText(QStringLiteral("相机：%1")
-                             .arg(NFSScanner::Core::deviceConnectionStateText(cameraState)));
-    systemChip_->setText(QStringLiteral("系统：v%1").arg(QStringLiteral(APP_VERSION)));
+    if (licenseManager_) {
+        licenseChip_->setText(QStringLiteral("授权：%1")
+                                  .arg(License::licenseStatusText(licenseManager_->status())));
+        applyChipStyle(licenseChip_, licenseManager_->status() == License::LicenseStatus::Valid
+                                         ? NFSScanner::Core::DeviceConnectionState::Connected
+                                         : NFSScanner::Core::DeviceConnectionState::Mock);
+    } else {
+        licenseChip_->setText(QStringLiteral("授权：Demo"));
+        applyChipStyle(licenseChip_, NFSScanner::Core::DeviceConnectionState::Mock);
+    }
 
-    applyChipStyle(motionChip_, motionState);
-    applyChipStyle(spectrumChip_, spectrumState);
-    applyChipStyle(cameraChip_, cameraState);
-    applyChipStyle(systemChip_, NFSScanner::Core::DeviceConnectionState::Connected);
+    scanChip_->setText(QStringLiteral("扫描：%1").arg(scanStateText_));
+    applyChipStyle(scanChip_, scanStateText_.contains(QStringLiteral("运行"))
+                                ? NFSScanner::Core::DeviceConnectionState::Connected
+                                : NFSScanner::Core::DeviceConnectionState::Disconnected);
 }
 
 void DeviceStatusBar::applyChipStyle(QLabel *label, NFSScanner::Core::DeviceConnectionState state) const
@@ -115,12 +156,11 @@ void DeviceStatusBar::applyChipStyle(QLabel *label, NFSScanner::Core::DeviceConn
         bg = QStringLiteral("#991b1b");
         fg = QStringLiteral("#fef2f2");
         break;
-    case NFSScanner::Core::DeviceConnectionState::Disconnected:
     default:
         break;
     }
 
-    label->setStyleSheet(QStringLiteral("QLabel { background:%1; color:%2; border-radius:6px; padding:4px 10px; }")
+    label->setStyleSheet(QStringLiteral("QLabel { background:%1; color:%2; border-radius:6px; padding:4px 8px; font-size:11px; }")
                              .arg(bg, fg));
 }
 
