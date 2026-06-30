@@ -236,10 +236,10 @@ ProjectName/
 
 ## 已知限制
 
-- PDF 报告导出尚未接入（避免 Qt PDF 模块构建风险）。
-- SCPI 连接仍在 UI 线程，采集在 `SpectrumAcquisitionWorker`（见 TODO(device-thread)）。
-- Alignment 仅矩形线性映射，透视标定为 TODO。
+- Alignment 仅矩形线性映射，透视标定为 TODO（P5-7）。
 - OpenCV / 真实 USB 相机驱动未引入。
+- Inno Setup 6 未安装时本地无法生成安装包（portable 绿色版可用）。
+- 部分 GUI 交互项需人工手测（见 SELF_TEST_CHECKLIST）。
 
 ## 迁移文档
 
@@ -295,9 +295,11 @@ NFSScanner-Setup-v0.9.0.exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.9.0
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.9.0
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
 ```
+
+> 安装包脚本需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。若未安装，`build_installer_windows.ps1` 会提示路径并退出，不影响 portable 构建。
 
 本地脚本输出目录：
 

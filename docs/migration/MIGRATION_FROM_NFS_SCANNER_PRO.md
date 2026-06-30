@@ -77,25 +77,25 @@
 
 | 能力域 | nfs-scanner-pro 目标 | nfs-scanner-cpp 现状 | 状态 |
 |--------|---------------------|---------------------|------|
-| 四页一级导航 | 扫描/设备/分析/报告 | 迁移前：左右两栏无导航 | **部分完成**（Release 010C 壳层） |
-| Project 管理 | 文件菜单新建/打开/保存文件夹 | 仅有项目名称/测试名称输入框 | **未完成** |
-| 右侧参数 Dock | 按页切换 QDockWidget | 迁移前：固定右栏 GroupBox | **部分完成** |
-| 视图菜单隐藏面板 | 日志/频谱/统计/数据表默认隐藏 | 迁移前：日志默认可见 | **部分完成** |
+| 四页一级导航 | 扫描/设备/分析/报告 | 迁移前：左右两栏无导航 | **已完成** |
+| Project 管理 | 文件菜单新建/打开/保存文件夹 | 仅有项目名称/测试名称输入框 | **部分完成** |
+| 右侧参数 Dock | 按页切换 QDockWidget | 迁移前：固定右栏 GroupBox | **已完成** |
+| 视图菜单隐藏面板 | 日志/频谱/统计/数据表默认隐藏 | 迁移前：日志默认可见 | **已完成** |
 | PCB 画布 QGraphicsView | Scene 七层 + QPixmapItem 热力图 | HeatmapView QWidget 整图绘制 | **部分完成**（原则满足，非 QGraphicsView） |
-| 设备状态栏 | 四设备芯片 + 探头/区域/频率/点数 | 无独立设备状态栏 | **未完成** |
+| 设备状态栏 | 四设备芯片 + 探头/区域/频率/点数 | 无独立设备状态栏 | **已完成**（六芯片 DeviceStatusBar） |
 | 工具栏 | 开始/停止扫描、拍照、对齐等 | 扫描按钮在左侧 GroupBox | **部分完成** |
 | 扫描状态机七态 | 含未就绪/停止中等 | ScanManager 八态（更细） | **已完成**（C++ 更强） |
 | 真实运动控制 | Mock + 未来真实 | SerialMotionController 已实现 | **已完成** |
 | 真实频谱仪 | Mock + 未来真实 | ZNA67/FSW/N9020A + Mock fallback | **已完成** |
 | 任务持久化 | project 文件夹 + scan 子目录 | TaskStorage 单任务目录 | **部分完成** |
 | 离线分析 | Trace/频率/LUT/导出 | FrequencyCsvParser + HeatmapGenerator | **已完成** |
-| 相机 / Alignment | 可选，不影响扫描 | 无 | **未完成** |
+| 相机 / Alignment | 可选，不影响扫描 | AlignmentEditor + Mock 截图 | **部分完成**（线性映射，无透视） |
 | 舵机 Hx/Hy | 设备页 Mock | 无 | **未完成** |
-| 报告 PDF/HTML | Release 015 Mock | 无 | **未完成** |
-| 授权 | 未来离线机器绑定 | 无 | **未完成** |
-| SCPI 设备线程 | 规范建议专用线程 | UI 线程创建 analyzer，采集在 worker 线程 | **部分完成** |
+| 报告 PDF/HTML | Release 015 Mock | ReportGenerator MD/HTML/PDF | **已完成** |
+| 授权 | 未来离线机器绑定 | LicenseManager Demo | **部分完成** |
+| SCPI 设备线程 | 规范建议专用线程 | SpectrumDeviceHost + 共享 QThread | **已完成** |
 | Mock fallback | 无硬件可演示 | Mock Motion + Mock Spectrum 均已保留 | **已完成** |
-| CI / 安装包 | verify.yml + 多 Release 验收 | Windows Build + Release tag 打安装包 | **部分完成** |
+| CI / 安装包 | verify.yml + 多 Release 验收 | Windows Build + Release tag 打安装包 | **部分完成**（portable 本地验证通过） |
 
 ---
 
@@ -317,56 +317,40 @@
 
 ## 13. 构建验证记录
 
-> 更新日期：2026-06-30（Release 010C）
+> 更新日期：2026-06-30（P1–P10 迁移批次）
 
 ### 构建命令
 
 ```powershell
-# 首次尝试（失败：cmake 未安装）
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-
-# 环境准备
-powershell -ExecutionPolicy Bypass -File scripts/setup_qt_windows.ps1   # 成功安装 Qt 6.8.3
-python -m pip install cmake                                            # 成功，cmake 4.3.2
-
-# 第二次尝试（使用 pip cmake）
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1 `
-  -CMakePath "C:/Users/yunfei/AppData/Roaming/Python/Python313/site-packages/cmake/data/bin/cmake.exe"
+$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
+.\build\Release\NFSScannerSelfCheck.exe
+.\build\Release\NFSScanner.exe
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
 ```
 
 ### 构建结果
 
-**Visual Studio 2022 Build Tools**：✅ 已安装  
+**Visual Studio 2022 Build Tools**：✅  
 **NFSScanner.exe**：✅ `build/Release/NFSScanner.exe`  
-**NFSScannerSelfCheck.exe**：✅ 全部 15 项 PASS（需 Qt bin 在 PATH）
+**NFSScannerSelfCheck.exe**：✅ 21 项 PASS  
+**Portable 打包**：✅ `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip`  
+**Installer 打包**：❌ Inno Setup 6 未安装（脚本给出清晰提示）
 
-```powershell
-$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
-.\build\Release\NFSScannerSelfCheck.exe
-.\build\Release\NFSScanner.exe
-```
+### 本批次主要变更
 
-### 错误与修复
+- MainWindow 瘦身，业务迁入 `ScanPage` / `DevicePage` / `AnalysisPage` / `ReportPage`
+- `DeviceStatusBar` 六芯片（运动/频谱/相机/项目/授权/扫描）
+- `AlignmentEditor` 接入扫描 Dock，Mock 相机截图接线
+- `ReportGenerator` MD/HTML/PDF 导出，`ReportPage` 报告目录输出
+- `self_check` 增加 alignment.json 往返与报告导出测试
 
-1. **cmake 未在 PATH**  
-   - 修复：运行 `python -m pip install cmake`，构建时传入 `-CMakePath` 指向 pip 安装的 `cmake.exe`。
+### 预期下一步
 
-2. **Visual Studio 2022 未安装**  
-   - 阻塞项：需安装 [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/) 并勾选 **「使用 C++ 的桌面开发」** 工作负载。  
-   - 安装完成后重新运行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1 `
-  -CMakePath "C:/Users/yunfei/AppData/Roaming/Python/Python313/site-packages/cmake/data/bin/cmake.exe"
-```
-
-3. **代码层面**  
-   - Release 010C MainWindow 重构已完成，待 VS 工具链就绪后做首次编译验证。
-
-### 预期下一步（构建环境就绪后）
-
-- 确认 `build/Release/NFSScanner.exe` 生成
-- 手动验证：四页导航切换、视图菜单显示/隐藏 Dock、扫描开始/暂停/停止、Mock 模式演示
+- 安装 Inno Setup 6 后验证 installer 脚本
+- 真实 SCPI / GRBL / USB 相机现场验证
+- P5-7 多点透视标定
+- P7 项目文件夹完整路径接入
 
 ---
 
