@@ -113,6 +113,14 @@ void AnalysisPage::bind(HeatmapView *scanCanvas,
     }
 }
 
+void AnalysisPage::refreshProjectPaths()
+{
+    if (!projectManager_ || !resultDirEdit_) {
+        return;
+    }
+    resultDirEdit_->setText(projectManager_->defaultScanOutputDir());
+}
+
 void AnalysisPage::setResultDir(const QString &dir)
 {
     if (resultDirEdit_) {

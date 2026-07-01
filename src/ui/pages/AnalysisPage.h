@@ -39,6 +39,7 @@ public:
     void loadFrequencyData();
     void setResultDir(const QString &dir);
     QString resultDir() const;
+    void refreshProjectPaths();
     QString currentTraceId() const;
     QString currentLutName() const;
     double currentVmin() const;

@@ -6,6 +6,7 @@
 #include <QWidget>
 
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
@@ -36,8 +37,10 @@ private:
     void loadBackgroundImage();
     void saveAlignmentDialog();
     void loadAlignmentDialog();
+    void generatePerspectiveCorners();
 
     NFSScanner::Core::AlignmentManager manager_;
+    QComboBox *mappingModeCombo_ = nullptr;
     QDoubleSpinBox *worldXMin_ = nullptr;
     QDoubleSpinBox *worldXMax_ = nullptr;
     QDoubleSpinBox *worldYMin_ = nullptr;

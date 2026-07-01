@@ -1,7 +1,7 @@
 # NFS Scanner C++ 实现 Backlog
 
 > 分支：`feature/full-python-pro-migration`  
-> 最后更新：2026-06-30
+> 最后更新：2026-07-01
 
 状态：`[ ]` 待办 · `[~]` 进行中 · `[x]` 完成 · `[!]` 需人工验证
 
@@ -79,7 +79,7 @@
 | P5-4 | AlignmentEditor UI | [x] | 扫描 Dock + Mock 相机截图 |
 | P5-5 | 热力图叠加背景 | [x] | HeatmapView setBackgroundImage |
 | P5-6 | 无 Alignment 仍可扫描 | [x] | 设计原则 |
-| P5-7 | 多点透视标定 | [ ] | TODO |
+| P5-7 | 四点透视标定 | [x] | QTransform::quadToQuad，无 OpenCV |
 
 ## P6 相机模块
 
@@ -94,12 +94,12 @@
 
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
-| P7-1 | Project / ProjectManager | [~] | |
-| P7-2 | project.json | [~] | |
-| P7-3 | 新建/打开/保存/另存为 | [~] | 文件菜单 |
-| P7-4 | 最近项目 | [~] | QSettings |
-| P7-5 | 扫描保存到 project/scans/ | [~] | TaskStorage 路径 |
-| P7-6 | 无项目时用 workspace | [~] | |
+| P7-1 | Project / ProjectManager | [x] | |
+| P7-2 | project.json | [x] | |
+| P7-3 | 新建/打开/保存/另存为 | [x] | 文件菜单 |
+| P7-4 | 最近项目 | [x] | QSettings |
+| P7-5 | 扫描保存到 project/scans/ | [x] | ScanPage + defaultScanOutputDir |
+| P7-6 | 无项目时用 workspace | [x] | workspace/scans + reports |
 | P7-7 | 状态栏显示当前项目 | [x] | DeviceStatusBar 项目芯片 |
 
 ## P8 报告模块
@@ -119,11 +119,11 @@
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
 | P9-1 | MachineId 生成 | [~] | |
-| P9-2 | LicenseManager + Demo 校验 | [~] | |
-| P9-3 | license.json 读取 | [~] | 不提交真实 license |
+| P9-2 | LicenseManager + Demo 校验 | [x] | machine_id + 过期 |
+| P9-3 | license.json 读取 | [x] | 不提交真实 license |
 | P9-4 | UI 授权状态 | [x] | DeviceStatusBar 授权芯片 |
 | P9-5 | Demo 模式功能限制 | [~] | 软限制 |
-| P9-6 | 非对称签名 | [ ] | TODO |
+| P9-6 | Ed25519 非对称签名 | [x] | LicenseSignatureVerifier；厂商私钥需人工签发 |
 
 ## P10 打包与发布
 
@@ -140,11 +140,11 @@
 
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
-| P11-1 | self_check 命令行工具 | [x] | 21 项 PASS |
+| P11-1 | self_check 命令行工具 | [x] | 47 项 PASS |
 | P11-2 | 蛇形路径测试 | [x] | |
-| P11-3 | traces.csv 解析测试 | [~] | |
+| P11-3 | traces.csv 解析测试 | [x] | |
 | P11-4 | LUT 测试 | [x] | |
-| P11-5 | Alignment 映射 + JSON 测试 | [x] | |
+| P11-5 | Alignment 映射 + JSON + 透视 | [x] | |
 | P11-6 | Project 创建测试 | [x] | |
 | P11-7 | SELF_TEST_CHECKLIST 更新 | [x] | |
 
@@ -168,9 +168,7 @@
 
 ## 后续剩余 TODO
 
-- P5-7 多点透视标定
-- P7 项目文件夹完整接入扫描/报告路径
-- P9 非对称 license 签名
-- P11-3 traces.csv 解析 self_check
+- Alignment 矩形拖拽 / HeatmapView 悬停世界坐标手测
+- 厂商生产 Ed25519 密钥对签发真实 license（见 LICENSE_SIGNING.md）
 - 真实硬件 SCPI / GRBL / USB 相机人工验证
 - Inno Setup 6 安装后 installer 构建验证

@@ -11,7 +11,7 @@
 |---|-----|------|------|------|
 | B1 | Windows MSVC Release | `scripts/build_windows_msvc.ps1` | ✅ PASS | 2026-06-30 |
 | B2 | CMake 配置 | VS 2022 Build Tools + Qt 6.8.3 | ✅ | 2026-06-30 |
-| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 21/21 PASS | 2026-06-30 |
+| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 47/47 PASS | 2026-07-01 |
 
 **环境记录：**
 
@@ -90,7 +90,8 @@
 |---|-----|------|------|
 | A1 | 世界↔像素线性映射 | 4 项 PASS | ✅ |
 | A2 | alignment.json 往返 | save/load PASS | ✅ |
-| A3 | Mock 相机背景截图 | AlignmentEditor 接线 | ⏳ 手测 |
+| A3 | 四点透视映射 | self_check PASS | ✅ |
+| A4 | Mock 相机背景截图 | AlignmentEditor 接线 | ⏳ 手测 |
 
 ---
 
@@ -108,7 +109,7 @@
 
 | # | 项 | 预期 | 结果 |
 |---|-----|------|------|
-| F1 | 格式 A 加载 | FrequencyData valid | ⏳ |
+| F1 | 格式 A 加载 | FrequencyData valid | ✅ self_check |
 | F2 | trace_id 自动发现 | traceCombo 填充 | ⏳ 手测 |
 | F3 | 频率索引 | freqIndex 正确 | ⏳ 手测 |
 
@@ -161,6 +162,7 @@
 | LI1 | machine_id 生成 | 非空稳定 | ⏳ 手测 |
 | LI2 | 无 license Demo 模式 | 允许运行 | ⏳ 手测 |
 | LI3 | DeviceStatusBar 授权芯片 | Demo/Licensed | ⏳ 手测 |
+| LI4 | Ed25519 签名校验 | self_check PASS | ✅ |
 
 ---
 
@@ -194,7 +196,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
 .\build\Release\NFSScannerSelfCheck.exe
 ```
 
-预期输出：`All self-check tests passed.`（21 项）或非零退出码列出失败项。
+预期输出：`All self-check tests passed.`（47 项）或非零退出码列出失败项。
 
 ## exe smoke test
 

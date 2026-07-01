@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -55,6 +56,15 @@ ReportPage::ReportPage(QWidget *parent)
             return;
         }
         previewEditor_->setPlainText(QStringLiteral("报告任务：%1\n\n使用右侧「导出」按钮生成文件。").arg(text));
+    });
+    connect(reportList_, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *current, QListWidgetItem *) {
+        if (!current || !analysisPage_) {
+            return;
+        }
+        const QString taskDir = current->data(Qt::UserRole).toString();
+        if (!taskDir.isEmpty()) {
+            analysisPage_->setResultDir(taskDir);
+        }
     });
 }
 
@@ -130,13 +140,8 @@ QWidget *ReportPage::buildParamPanel()
 
 QString ReportPage::defaultReportsDir() const
 {
-    if (projectManager_ && projectManager_->hasOpenProject()) {
-        const QString dir = QDir(projectManager_->currentProject().rootPath).filePath(QStringLiteral("reports"));
-        QDir().mkpath(dir);
-        return dir;
-    }
     if (projectManager_) {
-        const QString dir = QDir(projectManager_->workspaceRoot()).filePath(QStringLiteral("reports"));
+        const QString dir = projectManager_->defaultReportsDir();
         QDir().mkpath(dir);
         return dir;
     }
@@ -149,10 +154,22 @@ void ReportPage::refreshTaskList()
         return;
     }
     reportList_->clear();
-    const QString scanDir = analysisPage_ ? analysisPage_->resultDir() : QString();
-    if (!scanDir.isEmpty()) {
-        reportList_->addItem(QDir(scanDir).dirName());
+
+    QStringList tasks;
+    if (projectManager_) {
+        tasks = projectManager_->listScanTaskDirs();
+    } else if (analysisPage_) {
+        const QString dir = analysisPage_->resultDir();
+        if (!dir.isEmpty()) {
+            tasks << dir;
+        }
     }
+
+    for (const QString &taskDir : tasks) {
+        reportList_->addItem(QDir(taskDir).dirName());
+        reportList_->item(reportList_->count() - 1)->setData(Qt::UserRole, taskDir);
+    }
+
     if (reportList_->count() == 0) {
         reportList_->addItem(QStringLiteral("(无扫描任务，完成扫描后刷新)"));
     }

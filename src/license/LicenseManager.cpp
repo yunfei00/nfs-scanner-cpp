@@ -1,5 +1,8 @@
 #include "license/LicenseManager.h"
 
+#include "license/LicenseSignatureVerifier.h"
+#include "license/MachineId.h"
+
 #include <QDate>
 #include <QDir>
 #include <QFile>
@@ -7,8 +10,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
-
-#include "license/MachineId.h"
 
 namespace NFSScanner::License {
 
@@ -91,12 +92,11 @@ bool LicenseManager::loadFromFile(const QString &path)
         emit licenseChanged();
         return true;
     }
-    return verifyDemoLicense(path);
+    return verifyLicenseFile(path);
 }
 
-bool LicenseManager::verifyDemoLicense(const QString &path)
+bool LicenseManager::verifyLicenseFile(const QString &path)
 {
-    // TODO(license): replace DemoLicenseVerifier with asymmetric signature validation.
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         lastError_ = QStringLiteral("无法读取 license.json。");
@@ -110,6 +110,7 @@ bool LicenseManager::verifyDemoLicense(const QString &path)
     const QString boundMachine = obj.value(QStringLiteral("machine_id")).toString();
     expireDate_ = obj.value(QStringLiteral("expire_date")).toString();
     const QString signature = obj.value(QStringLiteral("signature")).toString();
+    const QString signatureAlg = obj.value(QStringLiteral("signature_alg")).toString(QStringLiteral("ed25519"));
 
     features_.clear();
     const QJsonArray featureArray = obj.value(QStringLiteral("features")).toArray();
@@ -136,13 +137,33 @@ bool LicenseManager::verifyDemoLicense(const QString &path)
         }
     }
 
-    if (signature.isEmpty()) {
-        lastError_ = QStringLiteral("Demo 校验：signature 为空，按 Demo 规则接受。");
+    if (!signature.isEmpty()) {
+        if (signatureAlg != QStringLiteral("ed25519")) {
+            lastError_ = QStringLiteral("不支持的 signature_alg：%1").arg(signatureAlg);
+            status_ = LicenseStatus::Invalid;
+            emit licenseChanged();
+            return false;
+        }
+        const QByteArray payload = LicenseSignatureVerifier::buildCanonicalPayload(obj);
+        if (!LicenseSignatureVerifier::verifyEd25519(payload, signature.toLatin1())) {
+            lastError_ = LicenseSignatureVerifier::lastError();
+            status_ = LicenseStatus::Invalid;
+            emit licenseChanged();
+            return false;
+        }
+    } else {
+        lastError_ = QStringLiteral("Demo 模式：signature 为空，未启用非对称签名校验。");
     }
 
     status_ = LicenseStatus::Valid;
     emit licenseChanged();
     return true;
+}
+
+bool LicenseManager::verifyDemoLicense(const QString &path)
+{
+    Q_UNUSED(path)
+    return verifyLicenseFile(path);
 }
 
 } // namespace NFSScanner::License

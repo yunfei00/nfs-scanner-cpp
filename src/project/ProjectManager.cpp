@@ -16,7 +16,7 @@ ProjectManager::ProjectManager(QObject *parent)
     , workspaceRoot_(QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
                          .filePath(QStringLiteral("workspace")))
 {
-    QDir().mkpath(workspaceRoot_);
+    ensureWorkspaceStructure();
 }
 
 bool ProjectManager::hasOpenProject() const
@@ -40,6 +40,41 @@ QString ProjectManager::defaultScanOutputDir() const
         return project_.scansDir();
     }
     return QDir(workspaceRoot_).filePath(QStringLiteral("scans"));
+}
+
+QString ProjectManager::defaultReportsDir() const
+{
+    if (project_.isOpen()) {
+        return project_.reportsDir();
+    }
+    return QDir(workspaceRoot_).filePath(QStringLiteral("reports"));
+}
+
+QStringList ProjectManager::listScanTaskDirs() const
+{
+    QStringList tasks;
+    const QDir scansDir(defaultScanOutputDir());
+    if (!scansDir.exists()) {
+        return tasks;
+    }
+
+    const QFileInfoList entries = scansDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo &entry : entries) {
+        const QString taskDir = entry.absoluteFilePath();
+        const bool hasTraces = QFile::exists(QDir(taskDir).filePath(QStringLiteral("traces.csv")));
+        const bool hasMeta = QFile::exists(QDir(taskDir).filePath(QStringLiteral("meta.json")));
+        if (hasTraces || hasMeta) {
+            tasks.prepend(taskDir);
+        }
+    }
+    return tasks;
+}
+
+void ProjectManager::ensureWorkspaceStructure() const
+{
+    QDir().mkpath(workspaceRoot_);
+    QDir().mkpath(defaultScanOutputDir());
+    QDir().mkpath(defaultReportsDir());
 }
 
 bool ProjectManager::createProject(const QString &name, const QString &parentDirectory)

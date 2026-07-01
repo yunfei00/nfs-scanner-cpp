@@ -37,6 +37,7 @@ signals:
     void licenseChanged();
 
 private:
+    bool verifyLicenseFile(const QString &path);
     bool verifyDemoLicense(const QString &path);
 
     LicenseStatus status_ = LicenseStatus::Demo;

@@ -18,6 +18,8 @@ public:
     ProjectInfo currentProject() const;
     QString workspaceRoot() const;
     QString defaultScanOutputDir() const;
+    QString defaultReportsDir() const;
+    QStringList listScanTaskDirs() const;
 
     bool createProject(const QString &name, const QString &parentDirectory);
     bool openProject(const QString &projectRootPath);
@@ -34,6 +36,7 @@ signals:
 
 private:
     bool ensureProjectStructure(const QString &rootPath);
+    void ensureWorkspaceStructure() const;
     bool writeProjectJson();
     bool readProjectJson(const QString &rootPath);
     void addRecentProject(const QString &path);

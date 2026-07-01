@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(NFSScannerCpp
     VERSION 0.10.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 set(CMAKE_CXX_STANDARD 17)
@@ -87,6 +87,8 @@ set(CORE_SOURCES
 
     src/license/MachineId.h
     src/license/MachineId.cpp
+    src/license/LicenseSignatureVerifier.h
+    src/license/LicenseSignatureVerifier.cpp
     src/license/LicenseManager.h
     src/license/LicenseManager.cpp
 
@@ -105,6 +107,18 @@ set(CORE_SOURCES
     src/infra/Logger.h
     src/infra/Logger.cpp
 )
+
+set(ED25519_C_SOURCES
+    src/license/ed25519/fe.c
+    src/license/ed25519/ge.c
+    src/license/ed25519/sc.c
+    src/license/ed25519/sha512.c
+    src/license/ed25519/keypair.c
+    src/license/ed25519/sign.c
+    src/license/ed25519/verify.c
+)
+set_source_files_properties(${ED25519_C_SOURCES} PROPERTIES LANGUAGE C)
+list(APPEND CORE_SOURCES ${ED25519_C_SOURCES})
 
 set(UI_SOURCES
     src/ui/MainWindow.h
@@ -150,6 +164,7 @@ foreach(target NFSScanner NFSScannerSelfCheck)
     target_include_directories(${target}
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
+    target_compile_definitions(${target} PRIVATE ED25519_NO_SEED)
     target_link_libraries(${target}
         PRIVATE
             Qt6::Core

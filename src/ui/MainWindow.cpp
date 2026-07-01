@@ -99,8 +99,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(projectManager_, &Project::ProjectManager::logMessage, this, &MainWindow::appendLog);
     connect(projectManager_, &Project::ProjectManager::projectChanged, this, [this]() {
         updateProjectStatusDisplay();
-        if (analysisPage_ && projectManager_->hasOpenProject()) {
-            analysisPage_->setResultDir(projectManager_->defaultScanOutputDir());
+        if (analysisPage_) {
+            analysisPage_->refreshProjectPaths();
+        }
+        if (reportPage_) {
+            reportPage_->refreshTaskList();
         }
     });
 

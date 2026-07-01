@@ -1,6 +1,7 @@
 #include "ui/AlignmentEditor.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -18,8 +19,13 @@ AlignmentEditor::AlignmentEditor(QWidget *parent)
     : QWidget(parent)
 {
     auto *layout = new QVBoxLayout(this);
-    auto *group = new QGroupBox(QStringLiteral("Alignment 矩形映射"), this);
+    auto *group = new QGroupBox(QStringLiteral("Alignment 映射"), this);
     auto *form = new QFormLayout(group);
+
+    mappingModeCombo_ = new QComboBox(group);
+    mappingModeCombo_->addItem(QStringLiteral("线性矩形"), static_cast<int>(NFSScanner::Core::AlignmentMappingMode::LinearRectangle));
+    mappingModeCombo_->addItem(QStringLiteral("四点透视"), static_cast<int>(NFSScanner::Core::AlignmentMappingMode::PerspectiveFourPoint));
+    form->addRow(QStringLiteral("映射模式"), mappingModeCombo_);
 
     auto makeSpin = [group](double value) {
         auto *spin = new QDoubleSpinBox(group);
@@ -60,6 +66,7 @@ AlignmentEditor::AlignmentEditor(QWidget *parent)
     auto *mockCaptureButton = new QPushButton(QStringLiteral("Mock 相机截图"), group);
     auto *saveButton = new QPushButton(QStringLiteral("保存 JSON"), group);
     auto *loadButton = new QPushButton(QStringLiteral("加载 JSON"), group);
+    auto *perspectiveButton = new QPushButton(QStringLiteral("从矩形生成四角"), group);
 
     auto *buttonRow1 = new QHBoxLayout;
     buttonRow1->addWidget(applyButton);
@@ -70,10 +77,10 @@ AlignmentEditor::AlignmentEditor(QWidget *parent)
     auto *buttonRow2 = new QHBoxLayout;
     buttonRow2->addWidget(saveButton);
     buttonRow2->addWidget(loadButton);
+    form->addRow(perspectiveButton);
     form->addRow(buttonRow2);
 
     layout->addWidget(group);
-    layout->addWidget(new QLabel(QStringLiteral("TODO(alignment): 多点透视标定与矩形拖拽。"), this));
     layout->addStretch(1);
 
     connect(applyButton, &QPushButton::clicked, this, &AlignmentEditor::syncFromUi);
@@ -81,6 +88,10 @@ AlignmentEditor::AlignmentEditor(QWidget *parent)
     connect(mockCaptureButton, &QPushButton::clicked, this, &AlignmentEditor::mockCaptureRequested);
     connect(saveButton, &QPushButton::clicked, this, &AlignmentEditor::saveAlignmentDialog);
     connect(loadButton, &QPushButton::clicked, this, &AlignmentEditor::loadAlignmentDialog);
+    connect(perspectiveButton, &QPushButton::clicked, this, &AlignmentEditor::generatePerspectiveCorners);
+    connect(mappingModeCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        syncFromUi();
+    });
     syncFromUi();
 }
 
@@ -132,11 +143,18 @@ void AlignmentEditor::syncFromUi()
     config.worldXMax = worldXMax_->value();
     config.worldYMin = worldYMin_->value();
     config.worldYMax = worldYMax_->value();
+    config.worldZ = worldZ_->value();
     config.pixelXMin = pixelXMin_->value();
     config.pixelXMax = pixelXMax_->value();
     config.pixelYMin = pixelYMin_->value();
     config.pixelYMax = pixelYMax_->value();
     config.fixedAspectRatio = fixedAspectCheck_->isChecked();
+    config.mappingMode = static_cast<NFSScanner::Core::AlignmentMappingMode>(
+        mappingModeCombo_->currentData().toInt());
+    if (config.mappingMode == NFSScanner::Core::AlignmentMappingMode::PerspectiveFourPoint
+        && (config.pixelCorners.size() != 4 || config.worldCorners.size() != 4)) {
+        config.syncCornersFromRectangle();
+    }
     manager_.setConfig(config);
     emit configApplied(config);
 }
@@ -148,11 +166,16 @@ void AlignmentEditor::syncToUi()
     worldXMax_->setValue(config.worldXMax);
     worldYMin_->setValue(config.worldYMin);
     worldYMax_->setValue(config.worldYMax);
+    worldZ_->setValue(config.worldZ);
     pixelXMin_->setValue(config.pixelXMin);
     pixelXMax_->setValue(config.pixelXMax);
     pixelYMin_->setValue(config.pixelYMin);
     pixelYMax_->setValue(config.pixelYMax);
     fixedAspectCheck_->setChecked(config.fixedAspectRatio);
+    const int modeIndex = mappingModeCombo_->findData(static_cast<int>(config.mappingMode));
+    if (modeIndex >= 0) {
+        mappingModeCombo_->setCurrentIndex(modeIndex);
+    }
     if (config.backgroundImagePath.isEmpty()) {
         backgroundLabel_->setText(QStringLiteral("背景图：未加载"));
     } else {
@@ -199,6 +222,21 @@ void AlignmentEditor::loadAlignmentDialog()
         return;
     }
     loadAlignmentFile(path);
+}
+
+void AlignmentEditor::generatePerspectiveCorners()
+{
+    syncFromUi();
+    NFSScanner::Core::AlignmentConfig config = manager_.config();
+    config.mappingMode = NFSScanner::Core::AlignmentMappingMode::PerspectiveFourPoint;
+    config.syncCornersFromRectangle();
+    manager_.setConfig(config);
+    const int modeIndex = mappingModeCombo_->findData(
+        static_cast<int>(NFSScanner::Core::AlignmentMappingMode::PerspectiveFourPoint));
+    if (modeIndex >= 0) {
+        mappingModeCombo_->setCurrentIndex(modeIndex);
+    }
+    emit configApplied(config);
 }
 
 } // namespace NFSScanner::UI

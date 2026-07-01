@@ -4,6 +4,7 @@
 
 #include <QPointF>
 #include <QString>
+#include <QTransform>
 
 namespace NFSScanner::Core {
 
@@ -20,9 +21,9 @@ public:
     QPointF worldToPixel(double worldX, double worldY) const;
     QPointF pixelToWorld(double pixelX, double pixelY) const;
 
-    // TODO(alignment): multi-point perspective calibration beyond linear rectangle mapping.
-
 private:
+    bool buildWorldToPixelTransform(QTransform *transform) const;
+
     AlignmentConfig config_;
     mutable QString lastError_;
 };
