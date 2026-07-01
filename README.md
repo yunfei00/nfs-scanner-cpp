@@ -80,18 +80,15 @@ powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -V
 
 ## Installer 安装包
 
-**需先安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。**
+**需先安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。**  
+ISCC 典型路径：`%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`（2026-07-02 本地验证通过）
 
 ```powershell
-# 若未安装，可尝试：
-winget install --id JRSoftware.InnoSetup -e --source winget
-
+$env:PATH = "$env:LOCALAPPDATA\Programs\Inno Setup 6;" + $env:PATH
 powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
 ```
 
 输出：`artifacts/NFSScanner-Setup-v0.10.0-alpha.exe`
-
-> 若本机无 Inno Setup 或 winget 需 UAC/管理员权限，脚本会清晰提示并退出，**不伪造成功**。详见 `docs/migration/SELF_TEST_CHECKLIST.md` PK3。
 
 ---
 
@@ -168,7 +165,7 @@ ProjectName/
 
 - 四点透视为四边形映射，**非 OpenCV 多点标定**；矩形拖拽/GUI 悬停读数需手测
 - USB 相机 / OpenCV 未引入
-- Installer 需本机安装 Inno Setup 6（或管理员权限通过 winget 安装）
+- Installer 需 Inno Setup 6；ISCC 位于 `%LOCALAPPDATA%\Programs\Inno Setup 6\`（2026-07-02 本地验证通过）
 - 厂商生产 license 私钥与签发工具需人工部署
 - SCPI 连接/配置在设备专用线程，采集在 `SpectrumAcquisitionWorker`（UI 不阻塞等待网络 SCPI）
 

@@ -317,19 +317,9 @@
 
 ## 13. 构建验证记录
 
-> 更新日期：2026-07-01（最终收尾验证）
+> 更新日期：2026-07-02（v0.10.0-alpha 交付确认）
 
-### 构建命令
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
-.\build\Release\NFSScannerSelfCheck.exe
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
-```
-
-### 最终验证结果（2026-07-01）
+### 最终验证结果（2026-07-02）
 
 | 项 | 结果 |
 |----|------|
@@ -338,21 +328,32 @@ powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Ve
 | NFSScanner.exe smoke（3s） | ✅ PASS |
 | Portable zip | ✅ `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip` (~22 MB) |
 | dist/NFSScanner | ✅ exe + Qt6 DLL + platforms + styles + resources |
-| Installer | ⏳ **Manual verification required** — winget 报告 Inno Setup 6.7.3 已装，但 ISCC.exe 未出现在标准路径（需重启 shell 或手动确认安装目录） |
+| Installer | ✅ `artifacts/NFSScanner-Setup-v0.10.0-alpha.exe` (~16.6 MB) |
+| ISCC 路径 | `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` |
 
-### 本批次完成功能
+### v0.10.0-alpha 已完成 P 项
 
-- **P5-7** 四点透视标定（`perspective_four_point` + `QTransform::quadToQuad`）
-- **P7** 项目路径深度接入（scans/reports/workspace + 任务列表）
-- **P9-6** Ed25519 license 签名校验框架（`LicenseSignatureVerifier`）
-- **P11-3** traces.csv 解析 self_check
+- **P1** MainWindow 解耦 + 四页架构
+- **P2** DeviceStatusBar / SCPI worker（SpectrumDeviceHost）
+- **P5** AlignmentEditor；**P5-7** FourPoint 透视标定
+- **P7** Project 文件夹路径（scans/reports/workspace）
+- **P8** Report（MD/HTML/PDF/PNG）
+- **P9** License 框架 + Ed25519 校验
+- **P10** Portable + Installer 打包
+- **P11** SelfCheck 扩展（47 项）
 
 ### Manual verification required
 
-- GRBL 串口运动、ZNA67/FSW/N9020A SCPI、USB 相机、舵机 Hx/Hy
-- GUI 完整扫描/分析/报告 PDF 流程
-- 厂商 Ed25519 私钥签发正式 license
-- Inno Setup ISCC 路径确认后 installer 构建
+- GRBL 串口运动、ZNA67/FSW/N9020A SCPI、USB/工业相机、舵机 Hx/Hy
+- GUI 完整真实扫描流程、报告 PDF 导出
+- 正式 license 私钥签发与生产 license
+
+### 下一步建议
+
+1. 推送/合并分支 `feature/full-python-pro-migration`
+2. Mock UI 人工走查
+3. 单硬件联调
+4. 打 tag：`git tag v0.10.0-alpha && git push origin v0.10.0-alpha`
 
 ---
 

@@ -130,8 +130,8 @@
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
 | P10-1 | build_windows_msvc.ps1 | [x] | 2026-06-30 Release 通过 |
-| P10-2 | package_portable | [x] | v0.10.0-alpha 2026-07-01 复验 ~22MB |
-| P10-3 | build_installer | [!] | Manual verification required（ISCC 路径） |
+| P10-2 | package_portable | [x] | v0.10.0-alpha 2026-07-02 复验 ~22MB |
+| P10-3 | build_installer | [x] | ISCC: `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` |
 | P10-4 | GitHub Actions | [x] | 已有 |
 | P10-5 | README 更新 v0.10.0 | [x] | |
 | P10-6 | CI 构建验证 | [x] | 本地 Release + portable 验证 |
@@ -168,8 +168,14 @@
 
 ## 后续剩余 TODO（Manual verification required）
 
-- Installer：`powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha`（确认 ISCC 路径）
 - Alignment 矩形拖拽 / HeatmapView 悬停世界坐标 GUI 手测
 - 厂商 Ed25519 私钥签发正式 license（见 LICENSE_SIGNING.md）
 - 真实硬件：GRBL / ZNA67 / FSW / N9020A / USB 相机 / 舵机 Hx/Hy
 - GUI 完整扫描流程与报告 PDF 导出手测
+
+## 下一步建议（v0.10.0-alpha 稳定节点）
+
+1. 分支已推送：`feature/full-python-pro-migration` → 创建 PR 合并 main
+2. Mock UI 人工走查（四页切换、Mock 扫描、报告导出）
+3. 单硬件逐项联调（建议先 GRBL 或 ZNA67）
+4. 验证通过后打 tag：`git tag v0.10.0-alpha && git push origin v0.10.0-alpha`

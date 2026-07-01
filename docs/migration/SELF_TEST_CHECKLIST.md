@@ -9,9 +9,9 @@
 
 | # | 项 | 命令 | 结果 | 日期 |
 |---|-----|------|------|------|
-| B1 | Windows MSVC Release | `scripts/build_windows_msvc.ps1` | ✅ PASS | 2026-07-01 |
+| B1 | Windows MSVC Release | `scripts/build_windows_msvc.ps1` | ✅ PASS | 2026-07-02 |
 | B2 | CMake 配置 | VS 2022 Build Tools + Qt 6.8.3 | ✅ | 2026-06-30 |
-| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 47/47 PASS | 2026-07-01 |
+| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 47/47 PASS | 2026-07-02 |
 
 **环境记录：**
 
@@ -25,7 +25,7 @@
 
 | # | 项 | 预期 | 结果 |
 |---|-----|------|------|
-| S1 | 应用启动无崩溃 | 主窗口 1600×900 | ✅ 3s smoke 2026-07-01 |
+| S1 | 应用启动无崩溃 | 主窗口 1600×900 | ✅ 3s smoke 2026-07-02 |
 | S2 | 默认模拟模式 | 日志提示 Mock | ⏳ 手测 |
 | S3 | 默认扫描页 | 导航第一项选中 | ⏳ 手测 |
 
@@ -170,9 +170,9 @@
 
 | # | 项 | 预期 | 结果 |
 |---|-----|------|------|
-| PK1 | package_portable_windows.ps1 | zip 生成 | ✅ v0.10.0-alpha ~22MB 2026-07-01 |
-| PK2 | dist/NFSScanner 内容 | exe + Qt dll + platforms + styles + resources | ✅ 2026-07-01 |
-| PK3 | build_installer_windows.ps1 | exe 存在 | ⏳ **Manual verification required** — winget 已装 Inno 6.7.3，ISCC 未在标准路径；重启 shell 后重试 |
+| PK1 | package_portable_windows.ps1 | zip 生成 | ✅ v0.10.0-alpha ~22MB 2026-07-02 |
+| PK2 | dist/NFSScanner 内容 | exe + Qt dll + platforms + styles + resources | ✅ 2026-07-02 |
+| PK3 | build_installer_windows.ps1 | exe 存在 | ✅ `artifacts/NFSScanner-Setup-v0.10.0-alpha.exe` ~16.6MB 2026-07-02 |
 
 ---
 
