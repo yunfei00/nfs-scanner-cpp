@@ -26,9 +26,15 @@ function Resolve-AppVersion {
 }
 
 function Resolve-Iscc {
+    $pathCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($pathCommand) {
+        return $pathCommand.Source
+    }
+
     $candidates = @(
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        "C:\Program Files\Inno Setup 6\ISCC.exe"
+        "C:\Program Files\Inno Setup 6\ISCC.exe",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     )
 
     foreach ($candidate in $candidates) {
@@ -60,9 +66,13 @@ $iscc = Resolve-Iscc
 if (-not $iscc) {
     Write-Host "ISCC.exe was not found."
     Write-Host "Checked:"
+    Write-Host "  PATH (Get-Command ISCC.exe)"
     Write-Host "  C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
     Write-Host "  C:\Program Files\Inno Setup 6\ISCC.exe"
+    Write-Host "  $env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     Write-Host "Install Inno Setup 6, then rerun this script."
+    Write-Host "Example: winget install --id JRSoftware.InnoSetup -e"
+    Write-Host "If winget reports success but ISCC is missing, restart the shell or log off/on, then rerun."
     throw "Inno Setup ISCC.exe was not found."
 }
 

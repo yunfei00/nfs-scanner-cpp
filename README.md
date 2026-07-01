@@ -1,208 +1,99 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前版本提供四页产品主框架、真实运动/频谱扫描、项目文件夹、离线分析、报告导出与 Demo 授权，并保留完整 Mock fallback。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.10.0-alpha** 提供四页产品主框架、真实运动/频谱扫描、项目文件夹、离线分析、报告导出、Ed25519 授权校验与完整 Mock fallback。
 
-## 当前版本
+## 当前版本：v0.10.0-alpha
 
-### v0.10.0 产品化迁移版本（nfs-scanner-pro → C++）
+| 能力 | 说明 |
+|------|------|
+| 四页主框架 | 扫描 / 设备 / 分析 / 报告（Project 仅文件菜单，非一级导航） |
+| 页面类 | `ScanPage`、`DevicePage`、`AnalysisPage`、`ReportPage` |
+| 设备管理 | `DeviceManager` + `DeviceStatusBar` 六芯片状态 |
+| 项目文件夹 | `ProjectManager`：`project.json`、`scans/`、`reports/`、`workspace/` 回退 |
+| Alignment | 线性矩形 + **四点透视**（`QTransform::quadToQuad`，无 OpenCV） |
+| 报告 | HTML / Markdown / PDF / PNG 集合 |
+| 授权 | `LicenseManager` + Ed25519 签名校验（见 [LICENSE_SIGNING.md](docs/migration/LICENSE_SIGNING.md)） |
+| 自检 | `NFSScannerSelfCheck.exe` — **47/47 PASS** |
+| 真实设备 | ZNA67 / FSW / N9020A SCPI + GRBL 串口运动（代码就绪，硬件需人工验证） |
 
-- 四页主框架：扫描 / 设备 / 分析 / 报告（Project 仅文件菜单，非一级导航）。
-- 独立页面类：`ScanPage`、`DevicePage`、`AnalysisPage`、`ReportPage`。
-- `DeviceManager` 统一管理运动、频谱仪、Mock Camera。
-- `ProjectManager` 支持项目文件夹（`project.json`、`scans/`、`reports/` 等）。
-- `AlignmentManager` + `AlignmentEditor` 矩形线性映射（无 OpenCV 依赖）。
-- `ReportGenerator` 支持 HTML / Markdown / PNG 集合导出。
-- `LicenseManager` Demo 授权（machine_id + license.json 占位校验）。
-- 命令行自检：`NFSScannerSelfCheck.exe`。
-- 迁移文档：`docs/migration/`（审计、Backlog、自测清单）。
-- 保留 v0.9.0 全部真实设备、ScanManager、TaskStorage、热力图能力。
+---
 
-### v0.9.0 真实仪表与真实扫描逻辑迁移版本
-- 根据 Python 真实测试代码迁移 ZNA67 / FSW / N9020A 采集逻辑。
-- ZNA67 支持 MMEM CSV 多 trace re/im 解析。
-- FSW 支持 MMEM CSV 频率/幅度解析。
-- N9020A 支持 ASCII TRACE 采集和 IDN 校验。
-- TaskStorage 支持多 trace 复数 re/im 写入。
-- 扫描流程支持真实运动到位后再采集仪表数据。
+## 构建
 
-### v0.8.0 频谱采集稳定性版本
-
-- 新增 SpectrumAcquisitionWorker。
-- 扫描流程支持异步频谱采集。
-- 支持采集超时、重试和失败停止策略。
-- 新增 R&S FSW 初版 TCP SCPI 适配。
-- 新增 Keysight N9020A 初版 TCP SCPI 适配。
-- 保留 Mock Spectrum fallback。
-
-### v0.7.0 频谱仪框架版本
-
-- 新增 ISpectrumAnalyzer 统一接口。
-- 新增 ScpiTcpClient。
-- 新增 Generic SCPI 频谱仪。
-- 新增 R&S ZNA67 初版适配。
-- 支持 TCP SCPI 连接、查询 IDN、配置频率范围、单次扫描。
-- 扫描流程支持使用真实频谱仪数据写入 `traces.csv`。
-- 保留 Mock Spectrum，支持无仪表演示。
-
-### v0.6.0 热力图增强版本
-
-- 支持 LUT 选择。
-- 支持自动/手动 vmin/vmax。
-- 支持透明度控制。
-- 支持 Colorbar。
-- 支持主界面 HeatmapView 显示。
-- 支持热力图弹窗预览和 PNG 导出。
-
-### v0.5.0 离线分析版本
-
-- 支持加载 `traces.csv`。
-- 支持自动发现 Trace。
-- 支持频率点选择。
-- 支持幅度、幅度dB、相位、实部、虚部显示模式。
-- 支持生成基础热力图。
-- 支持导出热力图 PNG。
-
-### v0.4.0 数据存储版本
-
-- 扫描开始时创建任务目录。
-- 保存 `meta.json`。
-- 保存 `scan_config.json`。
-- 保存 `points.csv`。
-- 保存 `traces.csv`。
-- 使用 MockSpectrumAnalyzer 生成模拟频谱数据。
-- `traces.csv` 兼容旧 Python 频率文件格式。
-- 扫描完成后可以点击查看打开任务目录。
-
-### v0.3.0 扫描流程版本
-
-- 新增 ScanConfig / ScanPoint / ScanPathPlanner。
-- 支持扫描区域读取。
-- 支持蛇形路径规划。
-- 支持扫描状态机。
-- 支持开始、暂停、继续、停止。
-- 支持扫描进度、剩余点数、预计完成时间显示。
-- 当前阶段仅模拟扫描，不采集真实频谱，不保存数据。
-
-### v0.2.0 运动控制版本
-
-- 新增 Qt SerialPort 真实串口接入。
-- 支持刷新串口、打开/关闭串口。
-- 支持 `$H`、`?`、`$I`、`$`、`G1X..Y..Z..F..`。
-- 支持 GRBL-like MPos 状态解析。
-- 支持 X/Y/Z 点动与绝对坐标移动。
-- 支持坐标范围保护。
-- 保留模拟模式，方便无硬件演示。
-
-### v0.1.1 UI 对齐版本
-
-- 完成接近 Python 版 NFS Scanner 的主界面布局。
-- 支持串口 mock、运动控制 mock、扫描区域配置、仪表配置占位、结果区、日志区、状态栏。
-- 暂未接入真实硬件。
-- 下一阶段计划接入 Qt SerialPort 运动控制模块。
-
-## 项目目标
-
-- 使用 C++17 和 Qt 6 Widgets 重构近场扫描系统客户端。
-- 以 CMake 作为跨平台构建入口，支持 Windows 和 Linux。
-- 当前阶段提供工业测试软件风格的主界面、Mock 设备发现、Mock 运动控制、扫描任务存储、离线分析和热力图增强显示。
-- 后续逐步接入更多真实频谱仪、数据采集线程、报告导出和版本签名。
-
-## 依赖
-
-- C++17 兼容编译器
-  - Windows: MSVC 2022 或 MinGW-w64
-  - Linux: GCC 10+ 或 Clang 12+
-- Qt 6，至少包含 Core、Gui、Widgets、SerialPort、Network 模块
-- CMake 3.20+
-- 发布安装包需要 Inno Setup 6
-
-## Windows 一键配置 Qt + 构建
-
-推荐命令：
+### 推荐（Windows MSVC）
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/dev_build_all_windows.ps1
-```
-
-分步命令：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/setup_qt_windows.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/run_windows_msvc.ps1
 ```
 
-默认会通过 `aqtinstall` 安装 Qt `6.8.3` 的 `win64_msvc2022_64` 包和 `qtserialport` 模块到 `C:/Qt`，构建脚本使用的 Qt 路径为 `C:/Qt/6.8.3/msvc2022_64`。如果 Qt 已经安装，安装脚本会复用现有目录并补齐 Qt SerialPort。
+默认 Qt 路径：`C:/Qt/6.8.3/msvc2022_64`
 
-## 本地构建
+产物：`build/Release/NFSScanner.exe`、`build/Release/NFSScannerSelfCheck.exe`
 
-### Windows: Visual Studio 2022 + Qt MSVC
+### 手动 CMake
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/msvc2022_64"
 cmake --build build --config Release
+```
+
+---
+
+## 运行
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_windows_msvc.ps1
+# 或
+$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScanner.exe
 ```
 
-也可以使用项目脚本：
+默认 **Mock 模式**：无真实串口/仪表亦可演示扫描与分析。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1 -QtPath "C:/Qt/6.8.3/msvc2022_64"
-powershell -ExecutionPolicy Bypass -File scripts/run_windows_msvc.ps1
-```
+---
 
-如果 CMake 没有加入 PATH，但 Visual Studio 或独立 CMake 已安装到其他位置，可以额外传入：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1 -QtPath "C:/Qt/6.8.3/msvc2022_64" -CMakePath "C:/Program Files/CMake/bin/cmake.exe"
-```
-
-### Windows: MinGW + Qt MinGW
-
-```powershell
-cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/mingw_64"
-cmake --build build --config Release
-.\build\NFSScanner.exe
-```
-
-### Linux
-
-```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/Qt/6.8.3/gcc_64
-cmake --build build -j
-./build/NFSScanner
-```
-
-如果 Qt 已通过系统包管理器安装且 CMake 可以自动找到 Qt6，可以省略 `CMAKE_PREFIX_PATH`。
-
-## 当前功能
-
-- 主窗口标题为 `NFS Scanner v0.10.0 - 近场扫描系统`，默认窗口大小 1600 x 900。
-- 产品主框架：菜单栏 + 工具栏 + 左侧四页导航 + 中央画布 + 右侧参数 Dock + 底部状态栏。
-- 视图菜单控制日志/频谱/统计/数据表格 Dock（默认隐藏）。
-- 文件菜单：新建/打开/保存/另存为/最近项目。
-- 设备页：运动平台 + 频谱仪 + Mock Camera + 系统诊断。
-- 扫描页：`HeatmapView` 整图热力图（禁止逐格 Rect）。
-- 分析页：traces.csv 加载、Trace/频率/LUT/Colorbar、PNG 导出。
-- 报告页：报告列表 + 预览 + HTML 导出。
-- 项目文件夹：见 `docs/migration/MIGRATION_FROM_NFS_SCANNER_PRO.md` 第 9 节。
-- 串口控制：默认模拟模式；取消模拟模式后可使用 Qt SerialPort 连接 GRBL-like 运动控制器。
-- 运动控制：支持点动步距选择、X/Y/Z 六向点动、复位、位置查询、读取版本、帮助命令和 G1 绝对坐标执行。
-- 扫描区域：1 行 9 列表格配置起点、终点和 step，支持蛇形扫描和驻留时间设置。
-- 仪表区域：支持 Mock Spectrum、Generic SCPI、R&S ZNA67、R&S FSW、Keysight N9020A，支持 TCP SCPI 连接、断开、查询 IDN、应用配置和单次扫描。
-- 扫描流程：ScanManager 使用异步 SpectrumAcquisitionWorker 采集频谱，支持开始、暂停、继续、停止，状态栏显示坐标、时间、剩余点数、预计完成和状态。
-- 数据存储：扫描开始创建任务目录，持续写入 `points.csv` 和 `traces.csv`，完成后可打开结果目录。
-- 离线分析：支持加载 `traces.csv`，选择 Trace/Frequency/显示模式并生成热力图。
-- 热力图增强：支持 LUT、Colorbar、自动/手动 vmin/vmax、透明度控制、主界面预览和弹窗导出 PNG。
-- 真实频谱仪框架：ScanManager 扫描时优先采集已连接仪表数据，未连接时自动使用 Mock Spectrum fallback，并支持 timeout/retry/stopOnError 策略。
-
-## 自检工具
+## SelfCheck
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
+$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScannerSelfCheck.exe
-.\build\Release\NFSScanner.exe
 ```
+
+预期：`All self-check tests passed.`（47 项，含透视标定、traces.csv 解析、Ed25519 签名、项目路径、报告导出）
+
+---
+
+## Portable 绿色版打包
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
+```
+
+输出：
+
+- `dist/NFSScanner/` — 含 `NFSScanner.exe`、Qt6 DLL、`platforms/`、`styles/`、`resources/`
+- `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip`
+
+---
+
+## Installer 安装包
+
+**需先安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。**
+
+```powershell
+# 若未安装，可尝试：
+winget install --id JRSoftware.InnoSetup -e --source winget
+
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
+```
+
+输出：`artifacts/NFSScanner-Setup-v0.10.0-alpha.exe`
+
+> 若本机无 Inno Setup 或 winget 需 UAC/管理员权限，脚本会清晰提示并退出，**不伪造成功**。详见 `docs/migration/SELF_TEST_CHECKLIST.md` PK3。
+
+---
 
 ## 项目文件夹结构
 
@@ -222,95 +113,98 @@ ProjectName/
   exports/
 ```
 
-无打开项目时使用 `%LOCALAPPDATA%/NFSScanner/workspace/scans/`。
+无打开项目时使用：
 
-## Mock 模式
+```text
+%LOCALAPPDATA%/NFSScanner/workspace/
+  scans/
+  reports/
+```
 
-- 运动：勾选「模拟模式」或 `DeviceManager` Mock 状态。
-- 频谱：未连接真实仪表时 `ScanManager` 自动 Mock Spectrum fallback。
-- 相机：`MockCamera` 可选，不影响扫描数据采集。
+扫描默认写入 `project/scans/` 或 `workspace/scans/`；报告默认写入 `project/reports/` 或 `workspace/reports/`。
 
-## 真实硬件验证
+---
 
-真实串口运动、ZNA67/FSW/N9020A SCPI、USB 相机、舵机 Hx/Hy 需现场人工验证，见 `docs/migration/SELF_TEST_CHECKLIST.md`。
+## Alignment 说明
+
+| 模式 | JSON `mapping_mode` | 说明 |
+|------|---------------------|------|
+| 线性矩形 | `linear_rectangle` | 世界/像素 min-max 线性映射 |
+| 四点透视 | `perspective_four_point` | 四角控制点 + `QTransform::quadToQuad` |
+
+- 扫描 Dock 内 `AlignmentEditor` 可切换模式、加载背景图、Mock 相机截图、保存/加载 `alignment.json`
+- **无 alignment.json 时扫描与分析仍可正常运行**
+
+---
+
+## License 说明
+
+- 无 `license.json` → **Demo 模式**（允许 scan / analysis / report）
+- 有 `license.json` 且 `signature` 为空 → machine_id 绑定 Demo 规则
+- 有 `signature` + `signature_alg=ed25519` → 必须通过 Ed25519 校验
+
+签发流程与厂商私钥保管见 [docs/migration/LICENSE_SIGNING.md](docs/migration/LICENSE_SIGNING.md)（**私钥不在仓库**）。
+
+---
+
+## 真实硬件验证边界
+
+以下项 **代码已接入，需现场人工验证**：
+
+| 项 | 说明 |
+|----|------|
+| GRBL 串口运动平台 | COM 口 + 真实平台 |
+| ZNA67 / FSW / N9020A | TCP SCPI + 仪表 IP |
+| USB 工业相机 | 驱动未引入 |
+| 舵机 Hx/Hy | 未实现 |
+| GUI 完整扫描流程 | 四页切换、Mock 扫描、报告 PDF 导出 |
+| 正式 license 签发 | 厂商 Ed25519 私钥 + 签发工具 |
+
+完整清单：`docs/migration/SELF_TEST_CHECKLIST.md`
+
+---
 
 ## 已知限制
 
-- Alignment 仅矩形线性映射，透视标定为 TODO（P5-7）。
-- OpenCV / 真实 USB 相机驱动未引入。
-- Inno Setup 6 未安装时本地无法生成安装包（portable 绿色版可用）。
-- 部分 GUI 交互项需人工手测（见 SELF_TEST_CHECKLIST）。
+- 四点透视为四边形映射，**非 OpenCV 多点标定**；矩形拖拽/GUI 悬停读数需手测
+- USB 相机 / OpenCV 未引入
+- Installer 需本机安装 Inno Setup 6（或管理员权限通过 winget 安装）
+- 厂商生产 license 私钥与签发工具需人工部署
+- SCPI 连接/配置在设备专用线程，采集在 `SpectrumAcquisitionWorker`（UI 不阻塞等待网络 SCPI）
+
+---
+
+## 依赖
+
+- C++17、CMake 3.20+
+- Qt 6.8.3（Core、Gui、Widgets、SerialPort、Network、PrintSupport）
+- Windows：MSVC 2022 或 MinGW-w64
+- 可选：Inno Setup 6（安装包）
+
+---
 
 ## 迁移文档
 
 - [MIGRATION_FROM_NFS_SCANNER_PRO.md](docs/migration/MIGRATION_FROM_NFS_SCANNER_PRO.md)
 - [IMPLEMENTATION_BACKLOG.md](docs/migration/IMPLEMENTATION_BACKLOG.md)
 - [SELF_TEST_CHECKLIST.md](docs/migration/SELF_TEST_CHECKLIST.md)
+- [LICENSE_SIGNING.md](docs/migration/LICENSE_SIGNING.md)
 
-## Release 发布流程
+---
 
-仓库配置了两个 Windows workflow：
-
-- `Windows Build`：push 到 `main` 或提交 pull request 时触发，只生成 Actions artifact，不创建 GitHub Release。
-- `Release`：push `v*.*.*` tag 时触发正式发布；手动 `workflow_dispatch` 只生成测试 artifact，不创建正式 GitHub Release。
-
-日常构建：
+## Release / CI
 
 ```powershell
-git push origin main
+git push origin feature/full-python-pro-migration
+# 正式发布 tag（需人工 push）：
+git tag v0.10.0-alpha
+git push origin v0.10.0-alpha
 ```
 
-构建成功后，在 Actions 中下载 artifact：
+GitHub Actions：`Windows Build`（PR/push）、`Release`（tag `v*.*.*`）。
 
-```text
-NFSScanner-Windows-Release
-```
+本地输出目录：
 
-正式发布：
-
-```powershell
-git tag v0.10.0
-git push origin v0.10.0
-```
-
-`Release` workflow 会自动构建，并在 GitHub Releases 页面生成：
-
-```text
-NFSScanner-Windows-Portable-v0.9.0.zip
-NFSScanner-Setup-v0.9.0.exe
-```
-
-两个版本区别：
-
-- Portable：绿色版，解压即用，适合测试和现场快速验证。
-- Setup：安装版，像普通 Windows 应用一样安装到 Program Files，支持开始菜单和桌面快捷方式，适合正式交付客户。
-
-如果 tag 后没有触发：
-
-- 检查 `.github/workflows/release.yml` 是否存在。
-- 确认 `on.push.tags` 包含 `v*.*.*`。
-- 如果 tag 已经推送过，建议使用新 tag，例如 `v0.3.1`。
-
-本地构建绿色版和安装包：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
-powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
-```
-
-> 安装包脚本需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)。若未安装，`build_installer_windows.ps1` 会提示路径并退出，不影响 portable 构建。
-
-本地脚本输出目录：
-
-- `dist/NFSScanner/`：绿色版目录，安装包也会从这里取文件。
+- `dist/NFSScanner/`
 - `artifacts/NFSScanner-Windows-Portable-<Version>.zip`
 - `artifacts/NFSScanner-Setup-<Version>.exe`
-
-## 后续开发路线
-
-1. 将真实 SCPI 设备对象迁移到设备专用线程。
-2. 增加 SCPI 命令队列和更完整的异步 socket 状态机。
-3. 完善扫描任务队列、断点续扫和异常恢复。
-4. 增加 Trace 管理和报告导出。
-5. 完成 Windows/Linux 打包、运行时依赖收集和版本签名。

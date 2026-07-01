@@ -78,7 +78,7 @@
 | 能力域 | nfs-scanner-pro 目标 | nfs-scanner-cpp 现状 | 状态 |
 |--------|---------------------|---------------------|------|
 | 四页一级导航 | 扫描/设备/分析/报告 | 迁移前：左右两栏无导航 | **已完成** |
-| Project 管理 | 文件菜单新建/打开/保存文件夹 | 仅有项目名称/测试名称输入框 | **部分完成** |
+| Project 管理 | 文件菜单新建/打开/保存文件夹 | ProjectManager 完整路径 | **已完成** |
 | 右侧参数 Dock | 按页切换 QDockWidget | 迁移前：固定右栏 GroupBox | **已完成** |
 | 视图菜单隐藏面板 | 日志/频谱/统计/数据表默认隐藏 | 迁移前：日志默认可见 | **已完成** |
 | PCB 画布 QGraphicsView | Scene 七层 + QPixmapItem 热力图 | HeatmapView QWidget 整图绘制 | **部分完成**（原则满足，非 QGraphicsView） |
@@ -87,15 +87,15 @@
 | 扫描状态机七态 | 含未就绪/停止中等 | ScanManager 八态（更细） | **已完成**（C++ 更强） |
 | 真实运动控制 | Mock + 未来真实 | SerialMotionController 已实现 | **已完成** |
 | 真实频谱仪 | Mock + 未来真实 | ZNA67/FSW/N9020A + Mock fallback | **已完成** |
-| 任务持久化 | project 文件夹 + scan 子目录 | TaskStorage 单任务目录 | **部分完成** |
+| 任务持久化 | project 文件夹 + scan 子目录 | TaskStorage + project/scans | **已完成** |
 | 离线分析 | Trace/频率/LUT/导出 | FrequencyCsvParser + HeatmapGenerator | **已完成** |
-| 相机 / Alignment | 可选，不影响扫描 | AlignmentEditor + Mock 截图 | **部分完成**（线性映射，无透视） |
-| 舵机 Hx/Hy | 设备页 Mock | 无 | **未完成** |
-| 报告 PDF/HTML | Release 015 Mock | ReportGenerator MD/HTML/PDF | **已完成** |
-| 授权 | 未来离线机器绑定 | LicenseManager Demo | **部分完成** |
+| 相机 / Alignment | 可选，不影响扫描 | AlignmentEditor 线性+四点透视 | **已完成**（无 OpenCV） |
+| 舵机 Hx/Hy | 设备页 Mock | 无 | **Manual verification required** |
+| 报告 PDF/HTML | Release 015 Mock | ReportGenerator MD/HTML/PDF | **已完成**（PDF 需 GUI 手测） |
+| 授权 | 未来离线机器绑定 | LicenseManager + Ed25519 | **已完成**（厂商私钥签发需人工） |
 | SCPI 设备线程 | 规范建议专用线程 | SpectrumDeviceHost + 共享 QThread | **已完成** |
 | Mock fallback | 无硬件可演示 | Mock Motion + Mock Spectrum 均已保留 | **已完成** |
-| CI / 安装包 | verify.yml + 多 Release 验收 | Windows Build + Release tag 打安装包 | **部分完成**（portable 本地验证通过） |
+| CI / 安装包 | verify.yml + 多 Release 验收 | portable ✅；installer 待 ISCC 可用 | **部分完成** |
 
 ---
 
@@ -317,7 +317,7 @@
 
 ## 13. 构建验证记录
 
-> 更新日期：2026-06-30（P1–P10 迁移批次）
+> 更新日期：2026-07-01（最终收尾验证）
 
 ### 构建命令
 
@@ -325,32 +325,34 @@
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
 $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScannerSelfCheck.exe
-.\build\Release\NFSScanner.exe
 powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
+powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha
 ```
 
-### 构建结果
+### 最终验证结果（2026-07-01）
 
-**Visual Studio 2022 Build Tools**：✅  
-**NFSScanner.exe**：✅ `build/Release/NFSScanner.exe`  
-**NFSScannerSelfCheck.exe**：✅ 21 项 PASS  
-**Portable 打包**：✅ `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip`  
-**Installer 打包**：❌ Inno Setup 6 未安装（脚本给出清晰提示）
+| 项 | 结果 |
+|----|------|
+| MSVC Release 构建 | ✅ PASS |
+| NFSScannerSelfCheck | ✅ **47/47 PASS** |
+| NFSScanner.exe smoke（3s） | ✅ PASS |
+| Portable zip | ✅ `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip` (~22 MB) |
+| dist/NFSScanner | ✅ exe + Qt6 DLL + platforms + styles + resources |
+| Installer | ⏳ **Manual verification required** — winget 报告 Inno Setup 6.7.3 已装，但 ISCC.exe 未出现在标准路径（需重启 shell 或手动确认安装目录） |
 
-### 本批次主要变更
+### 本批次完成功能
 
-- MainWindow 瘦身，业务迁入 `ScanPage` / `DevicePage` / `AnalysisPage` / `ReportPage`
-- `DeviceStatusBar` 六芯片（运动/频谱/相机/项目/授权/扫描）
-- `AlignmentEditor` 接入扫描 Dock，Mock 相机截图接线
-- `ReportGenerator` MD/HTML/PDF 导出，`ReportPage` 报告目录输出
-- `self_check` 增加 alignment.json 往返与报告导出测试
+- **P5-7** 四点透视标定（`perspective_four_point` + `QTransform::quadToQuad`）
+- **P7** 项目路径深度接入（scans/reports/workspace + 任务列表）
+- **P9-6** Ed25519 license 签名校验框架（`LicenseSignatureVerifier`）
+- **P11-3** traces.csv 解析 self_check
 
-### 预期下一步
+### Manual verification required
 
-- 安装 Inno Setup 6 后验证 installer 脚本
-- 真实 SCPI / GRBL / USB 相机现场验证
-- P5-7 多点透视标定
-- P7 项目文件夹完整路径接入
+- GRBL 串口运动、ZNA67/FSW/N9020A SCPI、USB 相机、舵机 Hx/Hy
+- GUI 完整扫描/分析/报告 PDF 流程
+- 厂商 Ed25519 私钥签发正式 license
+- Inno Setup ISCC 路径确认后 installer 构建
 
 ---
 

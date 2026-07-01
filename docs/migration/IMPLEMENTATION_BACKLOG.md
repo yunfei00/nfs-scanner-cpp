@@ -118,11 +118,11 @@
 
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
-| P9-1 | MachineId 生成 | [~] | |
+| P9-1 | MachineId 生成 | [x] | |
 | P9-2 | LicenseManager + Demo 校验 | [x] | machine_id + 过期 |
 | P9-3 | license.json 读取 | [x] | 不提交真实 license |
 | P9-4 | UI 授权状态 | [x] | DeviceStatusBar 授权芯片 |
-| P9-5 | Demo 模式功能限制 | [~] | 软限制 |
+| P9-5 | Demo 模式功能限制 | [x] | 软限制 scan/analysis/report |
 | P9-6 | Ed25519 非对称签名 | [x] | LicenseSignatureVerifier；厂商私钥需人工签发 |
 
 ## P10 打包与发布
@@ -130,8 +130,8 @@
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
 | P10-1 | build_windows_msvc.ps1 | [x] | 2026-06-30 Release 通过 |
-| P10-2 | package_portable | [x] | v0.10.0-alpha zip ~23MB |
-| P10-3 | build_installer | [!] | 需安装 Inno Setup 6（本机未装，脚本清晰提示） |
+| P10-2 | package_portable | [x] | v0.10.0-alpha 2026-07-01 复验 ~22MB |
+| P10-3 | build_installer | [!] | Manual verification required（ISCC 路径） |
 | P10-4 | GitHub Actions | [x] | 已有 |
 | P10-5 | README 更新 v0.10.0 | [x] | |
 | P10-6 | CI 构建验证 | [x] | 本地 Release + portable 验证 |
@@ -166,9 +166,10 @@
 
 ---
 
-## 后续剩余 TODO
+## 后续剩余 TODO（Manual verification required）
 
-- Alignment 矩形拖拽 / HeatmapView 悬停世界坐标手测
-- 厂商生产 Ed25519 密钥对签发真实 license（见 LICENSE_SIGNING.md）
-- 真实硬件 SCPI / GRBL / USB 相机人工验证
-- Inno Setup 6 安装后 installer 构建验证
+- Installer：`powershell -ExecutionPolicy Bypass -File scripts/build_installer_windows.ps1 -Version v0.10.0-alpha`（确认 ISCC 路径）
+- Alignment 矩形拖拽 / HeatmapView 悬停世界坐标 GUI 手测
+- 厂商 Ed25519 私钥签发正式 license（见 LICENSE_SIGNING.md）
+- 真实硬件：GRBL / ZNA67 / FSW / N9020A / USB 相机 / 舵机 Hx/Hy
+- GUI 完整扫描流程与报告 PDF 导出手测
