@@ -30,7 +30,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
 
 默认 Qt 路径：`C:/Qt/6.8.3/msvc2022_64`
 
-产物：`build/Release/NFSScanner.exe`、`build/Release/NFSScannerSelfCheck.exe`
+产物：`build/Release/NFSScanner.exe`、`build/Release/NFSScannerSelfCheck.exe`、`build/Release/NFSScannerCli.exe`
 
 ### 手动 CMake
 
@@ -41,14 +41,88 @@ cmake --build build --config Release
 
 ---
 
-## 运行
+## 启动方式
+
+> 首次使用前请先构建（见上一节）。Qt DLL 需在 PATH 中，或将 `C:/Qt/6.8.3/msvc2022_64/bin` 加入环境变量。
+
+### 1. GUI 主程序（推荐）
+
+**方式 A — 脚本启动（自动找 exe + 设置 Qt PATH）：**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/run_windows_msvc.ps1
-# 或
+```
+
+**方式 B — 直接运行 exe：**
+
+```powershell
 $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
+cd D:\code_2026\nfs-scanner-cpp   # 切换到仓库根目录，以便读取 config/
 .\build\Release\NFSScanner.exe
 ```
+
+**方式 C — Portable 绿色包（无需安装 Qt 到系统 PATH）：**
+
+```powershell
+# 先打包（仅需一次）
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.14.0-mock-validated
+
+# 解压 artifacts\NFSScanner-Windows-Portable-v0.14.0-mock-validated.zip 后：
+.\dist\NFSScanner\NFSScanner.exe
+```
+
+> Portable 包不含 `config/`，请将仓库内 `config/` 目录复制到 exe 同级，或在设备页手动指定配置路径。
+
+### 2. 常用命令行参数（GUI）
+
+在 exe 后追加参数，执行完即退出（不加参数则正常打开主窗口）：
+
+```powershell
+.\build\Release\NFSScanner.exe --help
+.\build\Release\NFSScanner.exe --profile mock_all
+.\build\Release\NFSScanner.exe --profile motion_only_grbl --safe-mode
+.\build\Release\NFSScanner.exe --hardware-config config/hardware_config.json
+.\build\Release\NFSScanner.exe --self-check
+.\build\Release\NFSScanner.exe --export-diagnostics
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--profile <name>` | 加载 `config/profiles/<name>.json` |
+| `--hardware-config <path>` | 加载指定 hardware_config.json |
+| `--safe-mode` | 禁止自动连接真实硬件 |
+| `--self-check` | 运行 SelfCheck 后退出 |
+| `--export-diagnostics` | 导出诊断包后退出 |
+
+### 3. 自检（命令行，无 GUI）
+
+```powershell
+$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
+.\build\Release\NFSScannerSelfCheck.exe
+```
+
+预期输出末尾：`All self-check tests passed.`（163 项）
+
+### 4. Headless 验收 CLI（无 GUI）
+
+```powershell
+$env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
+.\build\Release\NFSScannerCli.exe --help
+
+# 校验全部 Profile
+.\build\Release\NFSScannerCli.exe --validate-profiles --profile-dir config/profiles --output validation_output
+
+# Mock 全流程验收（一键，见下一节脚本）
+powershell -ExecutionPolicy Bypass -File scripts/validation/run_full_mock_validation.ps1
+```
+
+### 5. 首次启动建议流程（Mock，不接硬件）
+
+1. 构建：`scripts/build_windows_msvc.ps1`
+2. 自检：`NFSScannerSelfCheck.exe`
+3. 启动 GUI：`NFSScanner.exe --profile mock_all`
+4. 菜单 **设备 → 硬件接入向导** 跑 Mock bring-up
+5. 扫描页开始 Mock 扫描 → 分析页加载 `traces.csv`
 
 默认 **Mock 模式**：无真实串口/仪表亦可演示扫描与分析。
 
@@ -175,13 +249,13 @@ powershell -ExecutionPolicy Bypass -File scripts/validation/run_full_mock_valida
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.12.0-hardware-ready
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.14.0-mock-validated
 ```
 
 输出：
 
 - `dist/NFSScanner/` — 含 `NFSScanner.exe`、Qt6 DLL、`platforms/`、`styles/`、`resources/`
-- `artifacts/NFSScanner-Windows-Portable-v0.12.0-hardware-ready.zip`
+- `artifacts/NFSScanner-Windows-Portable-v0.14.0-mock-validated.zip`
 
 ---
 
@@ -300,9 +374,9 @@ ProjectName/
 
 ```powershell
 git push origin feature/full-python-pro-migration
-# 正式发布 tag（需人工 push）：
-git tag v0.10.0-alpha
-git push origin v0.10.0-alpha
+# 可选 tag：
+git tag v0.14.0-mock-validated
+git push origin v0.14.0-mock-validated
 ```
 
 GitHub Actions：`Windows Build`（PR/push）、`Release`（tag `v*.*.*`）。
