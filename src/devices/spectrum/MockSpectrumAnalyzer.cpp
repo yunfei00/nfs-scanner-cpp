@@ -1,5 +1,8 @@
 #include "devices/spectrum/MockSpectrumAnalyzer.h"
 
+#include "devices/FaultInjectionConfig.h"
+#include "diagnostics/HardwareSessionRecorder.h"
+
 #include <QDateTime>
 #include <QRandomGenerator>
 #include <QVariantMap>
@@ -22,6 +25,13 @@ QString MockSpectrumAnalyzer::name() const
 bool MockSpectrumAnalyzer::connectDevice(const QVariantMap &options)
 {
     Q_UNUSED(options)
+
+    FaultInjectionConfig &fault = globalFaultInjectionConfig();
+    if (fault.enabled && fault.connectFail) {
+        lastError_ = QStringLiteral("Fault injection: connect_fail");
+        emit errorOccurred(lastError_);
+        return false;
+    }
 
     connected_ = true;
     lastError_.clear();
@@ -85,6 +95,26 @@ SpectrumTrace MockSpectrumAnalyzer::singleSweep(int pointIndex, double x, double
         return trace;
     }
 
+    FaultInjectionConfig &fault = globalFaultInjectionConfig();
+    fault.onCommandSent();
+    if (fault.enabled && (fault.timeout || FaultInjectionConfig::shouldRandomTimeout(fault))) {
+        lastError_ = QStringLiteral("Fault injection: spectrum timeout");
+        emit errorOccurred(lastError_);
+        return trace;
+    }
+    if (fault.enabled && fault.spectrumEmptyTrace) {
+        lastError_ = QStringLiteral("Fault injection: spectrum_empty_trace");
+        Diagnostics::HardwareSessionRecorder::recordScpi(name(), QStringLiteral("event"), QStringLiteral("trace"), QStringLiteral("empty"), 0, false);
+        return trace;
+    }
+    if (fault.enabled && fault.disconnectAfterNCommands > 0
+        && fault.commandCount() >= fault.disconnectAfterNCommands) {
+        disconnectDevice();
+        lastError_ = QStringLiteral("Fault injection: disconnect_after_n_commands");
+        emit errorOccurred(lastError_);
+        return trace;
+    }
+
     const int pointCount = std::max(2, config_.sweepPoints);
     const double startHz = config_.startFreqHz;
     const double stopHz = std::max(config_.stopFreqHz, config_.startFreqHz + 1.0);
@@ -112,6 +142,13 @@ SpectrumTrace MockSpectrumAnalyzer::singleSweep(int pointIndex, double x, double
     }
 
     lastError_.clear();
+    if (fault.enabled && fault.spectrumBadCsv) {
+        trace.values.clear();
+        trace.freqs = {1.0, 2.0};
+        lastError_ = QStringLiteral("Fault injection: spectrum_bad_csv");
+    }
+    Diagnostics::HardwareSessionRecorder::recordScpi(name(), QStringLiteral("event"), QStringLiteral("trace"),
+                                                     Diagnostics::HardwareSessionRecorder::summarizeTrace(trace.values), 0, !trace.freqs.isEmpty());
     return trace;
 }
 

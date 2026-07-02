@@ -1,5 +1,6 @@
 #include "devices/spectrum/ScpiCommandLogger.h"
 
+#include "diagnostics/HardwareSessionRecorder.h"
 #include "infra/LogCategories.h"
 
 #include <QDateTime>
@@ -35,6 +36,14 @@ void ScpiCommandLogger::logEntry(const Entry &entry)
                                   entry.errorMessage);
 
     Infra::writeCategoryLog(Infra::LogCategory::ScpiRaw, line);
+
+    Diagnostics::HardwareSessionRecorder::recordScpi(entry.deviceType,
+                                                     entry.success ? QStringLiteral("rx") : QStringLiteral("error"),
+                                                     entry.command,
+                                                     entry.responseSummary,
+                                                     entry.elapsedMs,
+                                                     entry.success,
+                                                     entry.errorMessage);
 
     if (!entry.success && !entry.errorMessage.isEmpty()) {
         gLastError = entry.errorMessage;

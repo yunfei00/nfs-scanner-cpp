@@ -70,7 +70,12 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
 
-      - name: Collect executable
+      - name: Run SelfCheck
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Filter "NFSScannerSelfCheck.exe" -Recurse -File | Select-Object -First 1
+          if (-not $exe) { throw "NFSScannerSelfCheck.exe not found" }
+          & $exe.FullName
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"

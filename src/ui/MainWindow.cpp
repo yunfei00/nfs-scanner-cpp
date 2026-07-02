@@ -9,6 +9,7 @@
 #include "diagnostics/DiagnosticPackageExporter.h"
 #include "diagnostics/HardwareDiagnostics.h"
 #include "ui/HardwareDebugDialog.h"
+#include "ui/HardwareBringupWizard.h"
 #include "license/LicenseManager.h"
 #include "project/ProjectManager.h"
 #include "report/ReportData.h"
@@ -259,6 +260,9 @@ void MainWindow::setupMenus()
     });
 
     auto *deviceMenu = menuBar()->addMenu(QStringLiteral("设备(&D)"));
+    deviceMenu->addAction(QStringLiteral("硬件接入向导"), this, &MainWindow::showHardwareBringupWizard);
+    deviceMenu->addAction(QStringLiteral("硬件调试面板"), this, &MainWindow::showHardwareDebugDialog);
+    deviceMenu->addSeparator();
     deviceMenu->addAction(QStringLiteral("刷新设备"), this, [this]() {
         if (deviceManager_) {
             deviceManager_->refreshDevices();
@@ -575,6 +579,57 @@ void MainWindow::showHardwareDebugDialog()
 {
     HardwareDebugDialog dialog(deviceManager_, motionController_, this);
     dialog.exec();
+}
+
+void MainWindow::showHardwareBringupWizard()
+{
+    NFSScanner::UI::showHardwareBringupWizard(deviceManager_, licenseManager_, projectManager_, this);
+}
+
+void MainWindow::setSafeMode(bool enabled)
+{
+    safeMode_ = enabled;
+    if (safeMode_) {
+        appendLog(QStringLiteral("Safe mode: 已禁用真实硬件自动连接。"));
+    }
+}
+
+bool MainWindow::loadHardwareConfigFile(const QString &path)
+{
+    if (!deviceManager_) {
+        return false;
+    }
+    const bool ok = deviceManager_->loadHardwareConfig(path);
+    if (ok) {
+        appendLog(QStringLiteral("已加载硬件配置: %1").arg(path));
+    }
+    return ok;
+}
+
+bool MainWindow::loadHardwareProfile(const QString &profileName)
+{
+    if (!deviceManager_) {
+        return false;
+    }
+    const bool ok = deviceManager_->loadHardwareProfile(profileName);
+    if (ok) {
+        appendLog(QStringLiteral("已加载 Profile: %1").arg(profileName));
+        if (devicePage_) {
+            devicePage_->loadHardwareConfigToUi();
+        }
+    }
+    return ok;
+}
+
+bool MainWindow::exportDiagnosticsHeadless()
+{
+    Diagnostics::DiagnosticPackageOptions options;
+    options.deviceManager = deviceManager_;
+    options.licenseManager = licenseManager_;
+    options.projectManager = projectManager_;
+    options.selfCheckSummary = QStringLiteral("Headless export from --export-diagnostics");
+    QString outputDir;
+    return Diagnostics::DiagnosticPackageExporter::exportPackage(options, &outputDir);
 }
 
 void MainWindow::exportDiagnosticPackage()

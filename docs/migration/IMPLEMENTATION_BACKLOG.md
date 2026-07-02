@@ -3,6 +3,25 @@
 > 分支：`feature/full-python-pro-migration`  
 > 最后更新：2026-07-02
 
+## v0.13.0-hardware-final（真实硬件接入前最终补齐）
+
+| ID | 任务 | 状态 | 备注 |
+|----|------|------|------|
+| HWF-1 | HardwareBringupWizard + BringupPlan/Runner | [x] | Mock profile 全流程；每步跳过/重试/日志 |
+| HWF-2 | HardwareSessionRecorder/Replay (JSONL) | [x] | GRBL/SCPI/相机/探头/扫描事件摘要 |
+| HWF-3 | FaultInjectionConfig + Mock 设备接入 | [x] | `fault_injection_demo.json` |
+| HWF-4 | ScanErrorPolicy 五策略 + failed_points.csv | [x] | ManualConfirm、MockFallbackExplicit |
+| HWF-5 | DeviceStatusSnapshot | [x] | 扫描/bring-up/diagnostics 快照 |
+| HWF-6 | CLI：`--profile` / `--safe-mode` / `--self-check` / `--export-diagnostics` | [x] | `AppCommandLine` |
+| HWF-7 | 硬件脚本 `scripts/hardware/*.ps1` | [x] | mock_all / simulator / diagnostics |
+| HWF-8 | SelfCheck 扩展 | [x] | **163/163 PASS**（原 47 项保留） |
+| HWF-9 | CI SelfCheck 步骤 | [x] | `windows-build.yml` |
+| HWF-10 | 测试/验收文档 | [x] | `docs/testing/*`、`HARDWARE_READY_GAP_REPORT.md` |
+| HWF-11 | Portable v0.13.0-hardware-final | [x] | ~23 MB zip |
+| HWF-12 | 真实 GRBL/SCPI/相机/探头现场联调 | [!] | 需真实硬件 |
+
+---
+
 ## v0.11.0-hardware-alpha（真实硬件预实现）
 
 | ID | 任务 | 状态 | 备注 |
@@ -153,7 +172,7 @@
 
 | ID | 任务 | 状态 | 备注 |
 |----|------|------|------|
-| P11-1 | self_check 命令行工具 | [x] | 47 项 PASS |
+| P11-1 | self_check 命令行工具 | [x] | **163 项 PASS**（v0.13.0） |
 | P11-2 | 蛇形路径测试 | [x] | |
 | P11-3 | traces.csv 解析测试 | [x] | |
 | P11-4 | LUT 测试 | [x] | |
@@ -186,9 +205,10 @@
 - 真实硬件：GRBL / ZNA67 / FSW / N9020A / USB 相机 / 舵机 Hx/Hy
 - GUI 完整扫描流程与报告 PDF 导出手测
 
-## 下一步建议（v0.10.0-alpha 稳定节点）
+## 下一步建议（v0.13.0-hardware-final 节点）
 
-1. 分支已推送：`feature/full-python-pro-migration` → 创建 PR 合并 main
-2. Mock UI 人工走查（四页切换、Mock 扫描、报告导出）
-3. 单硬件逐项联调（建议先 GRBL 或 ZNA67）
-4. 验证通过后打 tag：`git tag v0.10.0-alpha && git push origin v0.10.0-alpha`
+1. 现场联调顺序：mock_all 验收 → GRBL 运动 → SCPI 模拟器 → 单台真实频谱仪 → 全真实组合
+2. 使用 **设备 → 硬件接入向导** 与 `scripts/hardware/run_hardware_self_check.ps1`
+3. `--safe-mode` 首次接真实设备；session JSONL 记录每次联调
+4. 人工走查：`docs/testing/UI_MANUAL_TEST_CHECKLIST.md`、`MOCK_END_TO_END_TEST.md`
+5. 验证通过后（可选）：`git tag v0.13.0-hardware-final`（勿自动 push）

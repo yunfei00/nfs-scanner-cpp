@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.12.0
+    VERSION 0.13.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX C
 )
@@ -18,6 +18,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network PrintSu
 set(CORE_SOURCES
     src/app/AppContext.h
     src/app/AppContext.cpp
+    src/app/AppCommandLine.h
+    src/app/AppCommandLine.cpp
     src/app/AppVersion.h
 
     src/core/ScanConfig.h
@@ -42,11 +44,18 @@ set(CORE_SOURCES
     src/core/PreScanChecklist.cpp
     src/core/ScanHardware.h
     src/core/ScanHardware.cpp
+    src/core/HardwareBringupPlan.h
+    src/core/HardwareBringupPlan.cpp
+    src/core/HardwareBringupRunner.h
+    src/core/HardwareBringupRunner.cpp
 
     src/config/HardwareConfig.h
     src/config/HardwareConfig.cpp
     src/config/HardwareConfigManager.h
     src/config/HardwareConfigManager.cpp
+
+    src/devices/FaultInjectionConfig.h
+    src/devices/FaultInjectionConfig.cpp
 
     src/devices/camera/CameraFactory.h
     src/devices/camera/CameraFactory.cpp
@@ -63,6 +72,12 @@ set(CORE_SOURCES
     src/diagnostics/HardwareSnapshotWriter.cpp
     src/diagnostics/DiagnosticPackageExporter.h
     src/diagnostics/DiagnosticPackageExporter.cpp
+    src/diagnostics/DeviceStatusSnapshot.h
+    src/diagnostics/DeviceStatusSnapshot.cpp
+    src/diagnostics/HardwareSessionRecorder.h
+    src/diagnostics/HardwareSessionRecorder.cpp
+    src/diagnostics/HardwareSessionReplay.h
+    src/diagnostics/HardwareSessionReplay.cpp
 
     src/devices/motion/IMotionController.h
     src/devices/motion/MockMotionController.h
@@ -184,6 +199,8 @@ set(UI_SOURCES
     src/ui/DeviceStatusBar.cpp
     src/ui/HardwareDebugDialog.h
     src/ui/HardwareDebugDialog.cpp
+    src/ui/HardwareBringupWizard.h
+    src/ui/HardwareBringupWizard.cpp
 )
 
 add_executable(NFSScanner

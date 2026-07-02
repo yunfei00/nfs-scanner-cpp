@@ -317,43 +317,52 @@
 
 ## 13. 构建验证记录
 
-> 更新日期：2026-07-02（v0.10.0-alpha 交付确认）
+> 更新日期：2026-07-02（v0.13.0-hardware-final 交付确认）
 
 ### 最终验证结果（2026-07-02）
 
 | 项 | 结果 |
 |----|------|
 | MSVC Release 构建 | ✅ PASS |
-| NFSScannerSelfCheck | ✅ **47/47 PASS** |
+| NFSScannerSelfCheck | ✅ **163/163 PASS** |
 | NFSScanner.exe smoke（3s） | ✅ PASS |
-| Portable zip | ✅ `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip` (~22 MB) |
-| dist/NFSScanner | ✅ exe + Qt6 DLL + platforms + styles + resources |
-| Installer | ✅ `artifacts/NFSScanner-Setup-v0.10.0-alpha.exe` (~16.6 MB) |
-| ISCC 路径 | `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` |
+| Portable zip | ✅ `artifacts/NFSScanner-Windows-Portable-v0.13.0-hardware-final.zip` (~23 MB) |
+| dist/NFSScanner | ✅ exe + Qt6 DLL + platforms + styles + resources + docs |
+| CI | ✅ `windows-build.yml` 含 SelfCheck 步骤 |
+| Installer | ⏳ 待现场验证（非本阶段阻塞项） |
 
-### v0.10.0-alpha 已完成 P 项
+### v0.13.0-hardware-final 新增能力
 
-- **P1** MainWindow 解耦 + 四页架构
-- **P2** DeviceStatusBar / SCPI worker（SpectrumDeviceHost）
-- **P5** AlignmentEditor；**P5-7** FourPoint 透视标定
-- **P7** Project 文件夹路径（scans/reports/workspace）
-- **P8** Report（MD/HTML/PDF/PNG）
-- **P9** License 框架 + Ed25519 校验
-- **P10** Portable + Installer 打包
-- **P11** SelfCheck 扩展（47 项）
+- **HardwareBringupWizard**：Profile → 运动/频谱/相机/探头 → 扫描前检查 → Markdown 报告
+- **HardwareSessionRecorder/Replay**：`logs/hardware_sessions/session_*.jsonl`
+- **FaultInjectionConfig**：Mock 超时/断线/空 trace/相机失败等
+- **ScanErrorPolicy**：StopOnError / RetryThenStop / SkipPoint / ManualConfirm / MockFallbackExplicit
+- **DeviceStatusSnapshot**：诊断包与 bring-up 报告内设备摘要
+- **CLI**：`--profile`、`--hardware-config`、`--self-check`、`--export-diagnostics`、`--safe-mode`
+- **脚本**：`scripts/hardware/*.ps1`（mock_all / motion / simulator / self_check / export_diagnostics）
+- **Python 模拟器**：`tools/simulators/grbl_motion_simulator.py`、`scpi_spectrum_simulator.py`
 
 ### Manual verification required
 
-- GRBL 串口运动、ZNA67/FSW/N9020A SCPI、USB/工业相机、舵机 Hx/Hy
-- GUI 完整真实扫描流程、报告 PDF 导出
+- GRBL 串口 Home/限位/Y 负方向、ZNA67/FSW/N9020A 真实 trace 格式
+- USB/工业相机厂商 SDK、探头 Hx/Hy 继电器时序
+- GUI 完整真实扫描流程、报告 PDF 导出、Installer 安装
 - 正式 license 私钥签发与生产 license
+
+### 推荐现场联调顺序
+
+1. `mock_all` + SelfCheck + bring-up 向导 Mock 全流程
+2. `motion_only_grbl`（真实串口，无设备时 WARN 不崩溃）
+3. `scpi_spectrum_simulator.py` + `spectrum_only_*` profile
+4. 单台真实频谱仪 → GRBL + 频谱组合 profile
+5. 探头 Hx/Hy → 全真实 `RealMotionRealSpectrum` 短网格扫描
 
 ### 下一步建议
 
-1. 推送/合并分支 `feature/full-python-pro-migration`
-2. Mock UI 人工走查
-3. 单硬件联调
-4. 打 tag：`git tag v0.10.0-alpha && git push origin v0.10.0-alpha`
+1. 人工走查 `docs/testing/UI_MANUAL_TEST_CHECKLIST.md`
+2. 使用 `--safe-mode` 首次连接真实硬件
+3. 联调 session 记录 + diagnostics 导出归档
+4. 可选 tag：`git tag v0.13.0-hardware-final`（勿自动 push）
 
 ---
 

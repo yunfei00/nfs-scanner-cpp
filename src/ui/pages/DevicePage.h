@@ -67,6 +67,9 @@ public:
     bool isNonMockAnalyzerSelected() const;
     QLabel *deviceDiscoveryLabel() const;
 
+    void loadHardwareConfigToUi();
+    void saveHardwareConfigFromUi();
+
     void refreshSerialPorts();
     void clearCurrentAnalyzer();
 
@@ -101,8 +104,6 @@ private:
     void updateAnalyzerMethodHint(const QString &analyzerName);
     QGroupBox *createHardwareConfigGroup();
     QGroupBox *createDeviceTestGroup();
-    void loadHardwareConfigToUi();
-    void saveHardwareConfigFromUi();
     double readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) const;
     bool ensureRealMotionReady();
     bool validateMotionTarget(double x, double y, double z);

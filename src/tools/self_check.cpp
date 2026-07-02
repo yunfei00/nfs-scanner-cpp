@@ -1,12 +1,19 @@
 #include "core/AlignmentManager.h"
 #include "core/ScanConfig.h"
-#include "core/ScanHardware.h"
-#include "config/HardwareConfigManager.h"
+#include "app/AppCommandLine.h"
+#include "core/HardwareBringupPlan.h"
+#include "core/HardwareBringupRunner.h"
 #include "core/DeviceManager.h"
 #include "core/PreScanChecklist.h"
 #include "core/ScanPathPlanner.h"
 #include "diagnostics/DiagnosticPackageExporter.h"
 #include "diagnostics/HardwareDiagnostics.h"
+#include "core/ScanHardware.h"
+#include "config/HardwareConfigManager.h"
+#include "devices/FaultInjectionConfig.h"
+#include "diagnostics/DeviceStatusSnapshot.h"
+#include "diagnostics/HardwareSessionRecorder.h"
+#include "diagnostics/HardwareSessionReplay.h"
 #include "diagnostics/HardwareSnapshotWriter.h"
 #include "devices/camera/CameraFactory.h"
 #include "devices/camera/MockCamera.h"
@@ -469,7 +476,8 @@ void testTaskStorageProbeOrientation()
     config.outputDir = temp.path();
     config.probeOrientation = QStringLiteral("Hy");
     config.hardwareMode = NFSScanner::Core::HardwareMode::MockAll;
-    config.errorStrategy = NFSScanner::Core::ScanErrorStrategy::RetryThenStop;
+    config.errorPolicy = NFSScanner::Core::ScanErrorPolicy::RetryThenStop;
+    config.errorStrategy = NFSScanner::Core::ScanErrorPolicy::RetryThenStop;
     config.hardwareConfigProfile = QStringLiteral("mock_all");
 
     NFSScanner::Storage::TaskStorage storage;
@@ -657,7 +665,13 @@ void testScanHardwareSerialization()
     check(NFSScanner::Core::hardwareModeFromString(QStringLiteral("RealMotionRealSpectrum"))
               == NFSScanner::Core::HardwareMode::RealMotionRealSpectrum,
           "hardware mode from string");
-    check(NFSScanner::Core::scanErrorStrategyToString(NFSScanner::Core::ScanErrorStrategy::SkipPoint)
+    check(NFSScanner::Core::scanErrorPolicyToString(NFSScanner::Core::ScanErrorPolicy::ManualConfirm)
+              == QStringLiteral("manualConfirm"),
+          "scan error policy manualConfirm");
+    check(NFSScanner::Core::scanErrorPolicyFromString(QStringLiteral("mockFallbackExplicit"))
+              == NFSScanner::Core::ScanErrorPolicy::MockFallbackExplicit,
+          "scan error policy mockFallbackExplicit");
+    check(NFSScanner::Core::scanErrorStrategyToString(NFSScanner::Core::ScanErrorPolicy::SkipPoint)
               == QStringLiteral("skipPoint"),
           "scan error strategy serialize");
     check(NFSScanner::Core::inferHardwareMode(true, true) == NFSScanner::Core::HardwareMode::MockAll,
@@ -684,6 +698,138 @@ void testCameraConfigFields()
     hw.camera.rotationDeg = 90;
     QStringList errors;
     check(hw.validate(&errors), "camera config validate");
+}
+
+void testCommandLineParse()
+{
+    const QString help = NFSScanner::App::AppCommandLine::helpText();
+    check(help.contains(QStringLiteral("--profile")), "command line help profile");
+    check(help.contains(QStringLiteral("--safe-mode")), "command line help safe mode");
+    check(help.contains(QStringLiteral("--export-diagnostics")), "command line help diagnostics");
+}
+
+void testDeviceStatusSnapshot()
+{
+    NFSScanner::Core::DeviceManager deviceManager;
+    QJsonObject object;
+    check(NFSScanner::Diagnostics::DeviceStatusSnapshot::capture(&deviceManager, nullptr, QStringLiteral("mock_all"), &object),
+          "device status snapshot capture");
+    check(object.contains(QStringLiteral("motion")), "device status snapshot motion");
+    check(object.value(QStringLiteral("profile")).toString() == QStringLiteral("mock_all"), "device status snapshot profile");
+}
+
+void testHardwareSessionRecorderReplay()
+{
+    NFSScanner::Diagnostics::HardwareSessionRecorder::startSession(QStringLiteral("selfcheck_test"));
+    NFSScanner::Diagnostics::HardwareSessionRecorder::recordGrbl(QStringLiteral("rx"), QStringLiteral("?"),
+                                                                 QStringLiteral("<Idle|MPos:0,0,0>"), true);
+    NFSScanner::Diagnostics::HardwareSessionRecorder::recordScpi(QStringLiteral("ZNA67"), QStringLiteral("rx"),
+                                                                 QStringLiteral("*IDN?"), QStringLiteral("MOCK,ZNA,1"), 5, true);
+    const QString path = NFSScanner::Diagnostics::HardwareSessionRecorder::currentSessionPath();
+    check(QFile::exists(path), "hardware session file exists");
+
+    QVector<NFSScanner::Diagnostics::SessionReplayEntry> entries;
+    check(NFSScanner::Diagnostics::HardwareSessionReplay::loadSession(path, &entries, nullptr), "hardware session load");
+    QString idleLine;
+    check(NFSScanner::Diagnostics::HardwareSessionReplay::replayGrblStatus(entries, &idleLine, nullptr), "replay GRBL idle");
+    QString idn;
+    check(NFSScanner::Diagnostics::HardwareSessionReplay::replayScpiIdn(entries, &idn), "replay SCPI IDN");
+}
+
+void testFaultInjectionConfig()
+{
+    NFSScanner::Devices::FaultInjectionConfig cfg;
+    check(NFSScanner::Devices::FaultInjectionConfig::loadFromProfile(QStringLiteral("fault_injection_demo"), &cfg, nullptr),
+          "fault injection profile load");
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+
+    NFSScanner::Devices::Motion::MockMotionController motion;
+    cfg.enabled = true;
+    cfg.connectFail = true;
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+    check(!motion.connectDevice(), "mock motion connect_fail");
+
+    cfg.connectFail = false;
+    cfg.timeout = true;
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+    motion.connectDevice();
+    check(!motion.moveTo(1, 1, 1), "mock motion timeout");
+
+    NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer analyzer;
+    cfg = NFSScanner::Devices::FaultInjectionConfig::disabled();
+    cfg.enabled = true;
+    cfg.spectrumEmptyTrace = true;
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+    analyzer.connectDevice({});
+    NFSScanner::Devices::Spectrum::SpectrumConfig sc;
+    sc.startFreqHz = 1e9;
+    sc.stopFreqHz = 2e9;
+    sc.sweepPoints = 11;
+    analyzer.configure(sc);
+    check(analyzer.singleSweep(0, 0, 0, 0).freqs.isEmpty(), "mock spectrum empty trace");
+
+    NFSScanner::Devices::Camera::MockCamera camera;
+    cfg = NFSScanner::Devices::FaultInjectionConfig::disabled();
+    cfg.enabled = true;
+    cfg.cameraCaptureFail = true;
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+    camera.connectDevice({});
+    check(camera.captureFrame().isNull(), "mock camera fail");
+
+    NFSScanner::Devices::Probe::MockProbeController probe;
+    cfg = NFSScanner::Devices::FaultInjectionConfig::disabled();
+    cfg.enabled = true;
+    cfg.probeSwitchFail = true;
+    NFSScanner::Devices::globalFaultInjectionConfig() = cfg;
+    probe.connectDevice();
+    check(!probe.setOrientation(NFSScanner::Devices::Probe::ProbeOrientation::Hy), "mock probe fail");
+
+    NFSScanner::Devices::globalFaultInjectionConfig() = NFSScanner::Devices::FaultInjectionConfig::disabled();
+}
+
+void testFailedPointsWrite()
+{
+    QTemporaryDir temp;
+    check(temp.isValid(), "failed points temp dir valid");
+    NFSScanner::Core::ScanConfig config;
+    config.outputDir = temp.path();
+    config.errorPolicy = NFSScanner::Core::ScanErrorPolicy::SkipPoint;
+    NFSScanner::Storage::TaskStorage storage;
+    check(storage.beginTask(config, 1), "failed points begin task");
+    NFSScanner::Core::ScanPoint point;
+    point.index = 0;
+    point.x = 1.0;
+    point.y = 2.0;
+    point.z = 3.0;
+    NFSScanner::Storage::PointTimingRecord timing;
+    timing.retryCount = 2;
+    check(storage.appendFailedPoint(point, QStringLiteral("spectrum timeout"), timing), "failed point append");
+    check(QFile::exists(QDir(storage.taskDir()).filePath(QStringLiteral("failed_points.csv"))), "failed_points.csv exists");
+}
+
+void testBringupMockPlan()
+{
+    NFSScanner::Core::DeviceManager deviceManager;
+    deviceManager.loadHardwareProfile(QStringLiteral("mock_all"));
+    const auto plan = NFSScanner::Core::HardwareBringupPlan::planForProfile(QStringLiteral("mock_all"));
+    check(!plan.steps.isEmpty(), "bringup mock plan steps");
+    const auto result = NFSScanner::Core::HardwareBringupRunner::runPlan(&deviceManager, plan, nullptr, false, true);
+    check(result.passCount() > 0, "bringup mock plan pass count");
+    check(!result.reportMarkdown.isEmpty(), "bringup report markdown");
+    check(QFile::exists(result.exportPath), "bringup report file exists");
+}
+
+void testGrblSimulatorResponseParse()
+{
+    using namespace NFSScanner::Devices::Motion;
+    const auto parsed = GrblResponseParser::parseLine(QStringLiteral("<Idle|MPos:1.000,2.000,3.000|FS:0,0>"));
+    check(parsed.isStatusReport && parsed.status.hasMachinePosition, "GRBL simulator idle parse");
+}
+
+void testScpiSimulatorSampleParse()
+{
+    const QString sample = QStringLiteral("Rohde&Schwarz,ZNA67,1.2.3");
+    check(sample.contains(QStringLiteral("ZNA67")), "SCPI simulator IDN sample");
 }
 
 } // namespace
@@ -722,6 +868,14 @@ int main(int argc, char *argv[])
     testScanHardwareSerialization();
     testLogCategoriesPaths();
     testCameraConfigFields();
+    testCommandLineParse();
+    testDeviceStatusSnapshot();
+    testHardwareSessionRecorderReplay();
+    testFaultInjectionConfig();
+    testFailedPointsWrite();
+    testBringupMockPlan();
+    testGrblSimulatorResponseParse();
+    testScpiSimulatorSampleParse();
     testPreScanChecklistMockPass();
     testPreScanChecklistRealMotionBlocks();
     testDiagnosticsMarkdownExport();

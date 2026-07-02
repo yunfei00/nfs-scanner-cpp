@@ -30,6 +30,7 @@ private:
     QWidget *buildSpectrumTab();
     QWidget *buildCameraTab();
     QWidget *buildProbeTab();
+    QWidget *buildFaultInjectionTab();
 
     NFSScanner::Core::DeviceManager *deviceManager_ = nullptr;
     NFSScanner::Devices::Motion::SerialMotionController *motionController_ = nullptr;

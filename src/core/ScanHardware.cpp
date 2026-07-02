@@ -32,29 +32,39 @@ HardwareMode hardwareModeFromString(const QString &text)
     return HardwareMode::MockAll;
 }
 
-QString scanErrorStrategyToString(ScanErrorStrategy strategy)
+QString scanErrorPolicyToString(ScanErrorPolicy policy)
 {
-    switch (strategy) {
-    case ScanErrorStrategy::StopOnError:
+    switch (policy) {
+    case ScanErrorPolicy::StopOnError:
         return QStringLiteral("stopOnError");
-    case ScanErrorStrategy::RetryThenStop:
+    case ScanErrorPolicy::RetryThenStop:
         return QStringLiteral("retryThenStop");
-    case ScanErrorStrategy::SkipPoint:
+    case ScanErrorPolicy::SkipPoint:
         return QStringLiteral("skipPoint");
+    case ScanErrorPolicy::ManualConfirm:
+        return QStringLiteral("manualConfirm");
+    case ScanErrorPolicy::MockFallbackExplicit:
+        return QStringLiteral("mockFallbackExplicit");
     }
     return QStringLiteral("stopOnError");
 }
 
-ScanErrorStrategy scanErrorStrategyFromString(const QString &text)
+ScanErrorPolicy scanErrorPolicyFromString(const QString &text)
 {
     const QString normalized = text.trimmed();
     if (normalized.compare(QStringLiteral("retryThenStop"), Qt::CaseInsensitive) == 0) {
-        return ScanErrorStrategy::RetryThenStop;
+        return ScanErrorPolicy::RetryThenStop;
     }
     if (normalized.compare(QStringLiteral("skipPoint"), Qt::CaseInsensitive) == 0) {
-        return ScanErrorStrategy::SkipPoint;
+        return ScanErrorPolicy::SkipPoint;
     }
-    return ScanErrorStrategy::StopOnError;
+    if (normalized.compare(QStringLiteral("manualConfirm"), Qt::CaseInsensitive) == 0) {
+        return ScanErrorPolicy::ManualConfirm;
+    }
+    if (normalized.compare(QStringLiteral("mockFallbackExplicit"), Qt::CaseInsensitive) == 0) {
+        return ScanErrorPolicy::MockFallbackExplicit;
+    }
+    return ScanErrorPolicy::StopOnError;
 }
 
 HardwareMode inferHardwareMode(bool motionMock, bool spectrumMock)

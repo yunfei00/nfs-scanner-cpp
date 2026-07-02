@@ -2,19 +2,19 @@
 
 NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.12.0-hardware-ready** 在 v0.11.0 基础上完成真实硬件预实现第二阶段：Profile 切换、GRBL/SCPI 调试链、Bring-up 测试、诊断包、硬件调试面板与扫描硬件模式接入。
 
-## 当前版本：v0.12.0-hardware-ready
+## 当前版本：v0.13.0-hardware-final
 
 | 能力 | 说明 |
 |------|------|
 | 四页主框架 | 扫描 / 设备 / 分析 / 报告 |
-| 硬件配置 | `config/hardware_config.json` + **8 个 Profile**（`config/profiles/`） |
-| 设备管理 | `DeviceManager` 统一 connect/disconnect/healthCheck |
-| 扫描前检查 | `PreScanChecklist` — 四种 hardware_mode / error 阻止 / warning 可继续 |
-| 硬件调试 | Help → **硬件调试面板**（GRBL/SCPI/相机/探头原始命令） |
-| 诊断包 | Help → **导出诊断包** → `logs/diagnostics/NFSScanner_Diagnostics_*/` |
-| 模拟器 | `tools/simulators/` — GRBL TCP + SCPI TCP（不接硬件可测通信链） |
-| 自检 | `NFSScannerSelfCheck.exe` — **135/135 PASS** |
-| 真实设备 | GRBL / SCPI / Mock 相机与探头（**接口已实现，现场未验证**） |
+| 硬件配置 | `config/hardware_config.json` + **9 个 Profile**（含 fault_injection_demo） |
+| 硬件接入向导 | 设备 → **硬件接入向导** — 分步 bring-up + 报告导出 |
+| 会话记录/回放 | `logs/hardware_sessions/session_*.jsonl` |
+| 故障注入 | HardwareDebugDialog → Fault Injection（Mock） |
+| 命令行 | `--profile` / `--safe-mode` / `--self-check` / `--export-diagnostics` |
+| 硬件脚本 | `scripts/hardware/run_mock_all_check.ps1` 等 |
+| 自检 | `NFSScannerSelfCheck.exe` — **163/163 PASS** |
+| 真实设备 | 接口完整，**现场未验证** |
 
 ---
 
@@ -60,11 +60,11 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScannerSelfCheck.exe
 ```
 
-预期：`All self-check tests passed.`（135 项，含 Profile、GRBL/SCPI parser、Bring-up、hardware_mode、诊断包、快照、日志分类）
+预期：`All self-check tests passed.`（163 项，含 bring-up 向导、session 回放、故障注入、error_policy、CLI）
 
 ---
 
-## 真实硬件预实现状态（v0.12.0-hardware-ready）
+## 真实硬件预实现状态（v0.13.0-hardware-final）
 
 ### 支持设备列表
 

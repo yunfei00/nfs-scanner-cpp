@@ -30,7 +30,8 @@ struct ScanConfig
     QString probeOrientation = QStringLiteral("Hx");
 
     HardwareMode hardwareMode = HardwareMode::MockAll;
-    ScanErrorStrategy errorStrategy = ScanErrorStrategy::StopOnError;
+    ScanErrorPolicy errorPolicy = ScanErrorPolicy::StopOnError;
+    ScanErrorPolicy errorStrategy = ScanErrorPolicy::StopOnError;
     QString hardwareConfigProfile;
     QString motionType = QStringLiteral("mock");
     QString spectrumType = QStringLiteral("mock");

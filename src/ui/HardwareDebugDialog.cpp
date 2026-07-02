@@ -6,6 +6,9 @@
 #include "devices/probe/IProbeController.h"
 #include "devices/spectrum/ScpiCommandLogger.h"
 
+#include "devices/FaultInjectionConfig.h"
+
+#include <QCheckBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -35,6 +38,7 @@ HardwareDebugDialog::HardwareDebugDialog(Core::DeviceManager *deviceManager,
     tabs->addTab(buildSpectrumTab(), QStringLiteral("Spectrum"));
     tabs->addTab(buildCameraTab(), QStringLiteral("Camera"));
     tabs->addTab(buildProbeTab(), QStringLiteral("Probe"));
+    tabs->addTab(buildFaultInjectionTab(), QStringLiteral("Fault Injection"));
     layout->addWidget(tabs);
 
     logEdit_ = new QPlainTextEdit(this);
@@ -195,6 +199,66 @@ QWidget *HardwareDebugDialog::buildProbeTab()
             appendLog(QStringLiteral("Probe -> Hy"));
         }
     });
+    return widget;
+}
+
+QWidget *HardwareDebugDialog::buildFaultInjectionTab()
+{
+    auto *widget = new QWidget(this);
+    auto *layout = new QVBoxLayout(widget);
+    layout->addWidget(new QLabel(QStringLiteral("仅 Mock 模式可用。用于验证超时、断线、空 trace 等故障逻辑。"), widget));
+
+    auto *enabled = new QCheckBox(QStringLiteral("启用故障注入"), widget);
+    auto *connectFail = new QCheckBox(QStringLiteral("connect_fail"), widget);
+    auto *timeout = new QCheckBox(QStringLiteral("timeout"), widget);
+    auto *emptyTrace = new QCheckBox(QStringLiteral("spectrum_empty_trace"), widget);
+    auto *cameraFail = new QCheckBox(QStringLiteral("camera_capture_fail"), widget);
+    auto *probeFail = new QCheckBox(QStringLiteral("probe_switch_fail"), widget);
+    auto *motionAlarm = new QCheckBox(QStringLiteral("motion_alarm"), widget);
+
+    layout->addWidget(enabled);
+    layout->addWidget(connectFail);
+    layout->addWidget(timeout);
+    layout->addWidget(emptyTrace);
+    layout->addWidget(cameraFail);
+    layout->addWidget(probeFail);
+    layout->addWidget(motionAlarm);
+
+    auto apply = [=]() {
+        Devices::FaultInjectionConfig &fault = Devices::globalFaultInjectionConfig();
+        fault.enabled = enabled->isChecked();
+        fault.connectFail = connectFail->isChecked();
+        fault.timeout = timeout->isChecked();
+        fault.spectrumEmptyTrace = emptyTrace->isChecked();
+        fault.cameraCaptureFail = cameraFail->isChecked();
+        fault.probeSwitchFail = probeFail->isChecked();
+        fault.motionAlarm = motionAlarm->isChecked();
+        fault.resetCounters();
+        appendLog(QStringLiteral("Fault injection updated (enabled=%1)").arg(fault.enabled));
+    };
+
+    connect(enabled, &QCheckBox::toggled, this, apply);
+    connect(connectFail, &QCheckBox::toggled, this, apply);
+    connect(timeout, &QCheckBox::toggled, this, apply);
+    connect(emptyTrace, &QCheckBox::toggled, this, apply);
+    connect(cameraFail, &QCheckBox::toggled, this, apply);
+    connect(probeFail, &QCheckBox::toggled, this, apply);
+    connect(motionAlarm, &QCheckBox::toggled, this, apply);
+
+    auto *loadDemo = new QPushButton(QStringLiteral("加载 fault_injection_demo profile"), widget);
+    layout->addWidget(loadDemo);
+    connect(loadDemo, &QPushButton::clicked, this, [this, apply]() {
+        if (deviceManager_) {
+            deviceManager_->loadHardwareProfile(QStringLiteral("fault_injection_demo"));
+        }
+        Devices::FaultInjectionConfig cfg;
+        Devices::FaultInjectionConfig::loadFromProfile(QStringLiteral("fault_injection_demo"), &cfg, nullptr);
+        Devices::globalFaultInjectionConfig() = cfg;
+        apply();
+        appendLog(QStringLiteral("Loaded fault_injection_demo profile."));
+    });
+
+    layout->addStretch(1);
     return widget;
 }
 

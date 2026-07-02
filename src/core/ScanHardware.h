@@ -11,17 +11,31 @@ enum class HardwareMode {
     RealMotionRealSpectrum
 };
 
-enum class ScanErrorStrategy {
+enum class ScanErrorPolicy {
     StopOnError,
     RetryThenStop,
-    SkipPoint
+    SkipPoint,
+    ManualConfirm,
+    MockFallbackExplicit
 };
+
+using ScanErrorStrategy = ScanErrorPolicy;
 
 QString hardwareModeToString(HardwareMode mode);
 HardwareMode hardwareModeFromString(const QString &text);
 
-QString scanErrorStrategyToString(ScanErrorStrategy strategy);
-ScanErrorStrategy scanErrorStrategyFromString(const QString &text);
+QString scanErrorPolicyToString(ScanErrorPolicy policy);
+ScanErrorPolicy scanErrorPolicyFromString(const QString &text);
+
+inline QString scanErrorStrategyToString(ScanErrorPolicy policy)
+{
+    return scanErrorPolicyToString(policy);
+}
+
+inline ScanErrorPolicy scanErrorStrategyFromString(const QString &text)
+{
+    return scanErrorPolicyFromString(text);
+}
 
 HardwareMode inferHardwareMode(bool motionMock, bool spectrumMock);
 

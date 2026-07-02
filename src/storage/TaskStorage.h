@@ -18,6 +18,7 @@ struct PointTimingRecord
     QDateTime acquisitionEnd;
     QString motionStatus;
     QString spectrumStatus;
+    QString pointStatus = QStringLiteral("ok");
     int retryCount = 0;
 };
 
@@ -31,6 +32,7 @@ public:
                      const QDateTime &timestamp,
                      const PointTimingRecord &timing = PointTimingRecord{});
     bool appendTrace(const Core::ScanResult &result);
+    bool appendFailedPoint(const Core::ScanPoint &point, const QString &reason, const PointTimingRecord &timing = PointTimingRecord{});
     bool finishTask();
 
     QString taskDir() const;
@@ -48,6 +50,7 @@ private:
     QString lastError_;
     QString pointsPath_;
     QString tracesPath_;
+    QString failedPointsPath_;
     int traceFrequencyCount_ = 0;
     bool traceFrequencyWritten_ = false;
 };

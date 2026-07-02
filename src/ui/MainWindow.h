@@ -51,6 +51,11 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+    void setSafeMode(bool enabled);
+    bool loadHardwareConfigFile(const QString &path);
+    bool loadHardwareProfile(const QString &profileName);
+    bool exportDiagnosticsHeadless();
+
     enum class AppPage {
         Scan = 0,
         Device = 1,
@@ -76,6 +81,7 @@ private:
     void showAboutDialog();
     void showDiagnosticsDialog();
     void showHardwareDebugDialog();
+    void showHardwareBringupWizard();
     void exportDiagnosticPackage();
     void updateProjectStatusDisplay();
 
@@ -126,6 +132,7 @@ private:
     QDockWidget *dataTableDock_ = nullptr;
     QToolBar *mainToolBar_ = nullptr;
     AppPage currentPage_ = AppPage::Scan;
+    bool safeMode_ = false;
 };
 
 } // namespace NFSScanner::UI

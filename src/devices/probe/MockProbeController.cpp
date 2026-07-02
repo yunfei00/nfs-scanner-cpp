@@ -1,5 +1,8 @@
 #include "devices/probe/MockProbeController.h"
 
+#include "devices/FaultInjectionConfig.h"
+#include "diagnostics/HardwareSessionRecorder.h"
+
 #include <QThread>
 
 namespace NFSScanner::Devices::Probe {
@@ -51,6 +54,14 @@ bool MockProbeController::setOrientation(ProbeOrientation orientation)
     if (!connected_) {
         lastError_ = QStringLiteral("探头控制器未连接。");
         emit errorOccurred(lastError_);
+        return false;
+    }
+
+    FaultInjectionConfig &fault = globalFaultInjectionConfig();
+    if (fault.enabled && fault.probeSwitchFail) {
+        lastError_ = QStringLiteral("Fault injection: probe_switch_fail");
+        emit errorOccurred(lastError_);
+        Diagnostics::HardwareSessionRecorder::recordEvent(QStringLiteral("probe"), QStringLiteral("Probe"), lastError_, false);
         return false;
     }
 

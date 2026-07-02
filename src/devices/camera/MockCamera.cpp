@@ -1,5 +1,8 @@
 #include "devices/camera/MockCamera.h"
 
+#include "devices/FaultInjectionConfig.h"
+#include "diagnostics/HardwareSessionRecorder.h"
+
 #include <QPainter>
 #include <QRandomGenerator>
 
@@ -41,6 +44,13 @@ QImage MockCamera::captureFrame()
 {
     if (!connected_) {
         lastError_ = QStringLiteral("相机未连接。");
+        return {};
+    }
+
+    FaultInjectionConfig &fault = globalFaultInjectionConfig();
+    if (fault.enabled && fault.cameraCaptureFail) {
+        lastError_ = QStringLiteral("Fault injection: camera_capture_fail");
+        Diagnostics::HardwareSessionRecorder::recordEvent(QStringLiteral("camera"), QStringLiteral("Camera"), lastError_, false);
         return {};
     }
 

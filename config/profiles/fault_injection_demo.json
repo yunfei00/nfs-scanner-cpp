@@ -1,0 +1,20 @@
+{
+  "description": "Fault injection demo profile for mock-only testing",
+  "motion": { "enabled": true, "type": "mock", "port": "COM_MOCK", "baudrate": 115200 },
+  "spectrum": { "enabled": true, "type": "mock", "address": "127.0.0.1", "port": 5025 },
+  "camera": { "enabled": true, "type": "mock", "save_dir": "images" },
+  "probe": { "enabled": true, "type": "mock", "orientation": "Hx" },
+  "fault_injection": {
+    "connect_fail": false,
+    "timeout": false,
+    "random_timeout_rate": 0.0,
+    "invalid_response": false,
+    "disconnect_after_n_commands": 0,
+    "motion_alarm": false,
+    "limit_error": false,
+    "spectrum_empty_trace": false,
+    "spectrum_bad_csv": false,
+    "camera_capture_fail": false,
+    "probe_switch_fail": false
+  }
+}
