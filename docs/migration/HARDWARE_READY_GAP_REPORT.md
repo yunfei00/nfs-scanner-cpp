@@ -1,6 +1,6 @@
 # Hardware Ready Gap Report
 
-> 版本：v0.13.0-hardware-final  
+> 版本：v0.14.0-mock-validated  
 > 分支：`feature/full-python-pro-migration`  
 > 日期：2026-07-02
 
@@ -21,6 +21,7 @@
 | 脚本 | `scripts/hardware/*.ps1` | ✅ |
 | 模拟器 | GRBL TCP + SCPI TCP Python 工具 | ✅ |
 | 自检 | NFSScannerSelfCheck **163/163 PASS** | ✅ |
+| **全自动 Mock 验收** | `run_full_mock_validation.ps1` + NFSScannerCli | ✅ v0.14 |
 
 ## 仍缺的软件能力（本阶段已补齐项标记 ✅）
 

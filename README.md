@@ -1,13 +1,15 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.12.0-hardware-ready** 在 v0.11.0 基础上完成真实硬件预实现第二阶段：Profile 切换、GRBL/SCPI 调试链、Bring-up 测试、诊断包、硬件调试面板与扫描硬件模式接入。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.14.0-mock-validated** 在 v0.13.0 硬件预实现基础上增加 **全自动 Mock 验收**（无需人工点 UI）。
 
-## 当前版本：v0.13.0-hardware-final
+## 当前版本：v0.14.0-mock-validated
 
 | 能力 | 说明 |
 |------|------|
 | 四页主框架 | 扫描 / 设备 / 分析 / 报告 |
 | 硬件配置 | `config/hardware_config.json` + **9 个 Profile**（含 fault_injection_demo） |
+| **全自动 Mock 验收** | `scripts/validation/run_full_mock_validation.ps1` → `validation_output/FULL_MOCK_VALIDATION_REPORT.md` |
+| **NFSScannerCli** | `build/Release/NFSScannerCli.exe` — headless profile/bring-up/e2e/diagnostics 验证 |
 | 硬件接入向导 | 设备 → **硬件接入向导** — 分步 bring-up + 报告导出 |
 | 会话记录/回放 | `logs/hardware_sessions/session_*.jsonl` |
 | 故障注入 | HardwareDebugDialog → Fault Injection（Mock） |
@@ -64,7 +66,25 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 
 ---
 
-## 真实硬件预实现状态（v0.13.0-hardware-final）
+## 全自动 Mock 验收（无需人工点 UI）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/validation/run_full_mock_validation.ps1
+```
+
+或分步：
+
+```powershell
+.\build\Release\NFSScannerCli.exe --profile mock_all --profile-dir config/profiles --run-full-validation --output validation_output
+.\build\Release\NFSScannerCli.exe --generate-validation-report --input validation_output --output validation_output
+```
+
+报告：`validation_output/FULL_MOCK_VALIDATION_REPORT.md`  
+说明：[scripts/validation/README.md](scripts/validation/README.md)
+
+---
+
+## 真实硬件预实现状态（v0.14.0-mock-validated）
 
 ### 支持设备列表
 
@@ -84,7 +104,8 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 ### 不接硬件时能做什么
 
 - Mock 全流程扫描与分析
-- 运行 `NFSScannerSelfCheck.exe`（135 项）
+- 运行 `NFSScannerSelfCheck.exe`（163 项）
+- 运行 **全自动 Mock 验收**（`scripts/validation/run_full_mock_validation.ps1`）
 - 使用 Python 模拟器验证 GRBL/SCPI TCP 链路（`tools/simulators/`）
 - 设备页单项测试、Bring-up Test（Mock）、导出 Bring-up 报告
 - 导出诊断包（Help → 导出诊断包）

@@ -5,6 +5,7 @@ build-*/
 out/
 dist/
 artifacts/
+validation_output/
 
 # IDE and editor files
 .vs/

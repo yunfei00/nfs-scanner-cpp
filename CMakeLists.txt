@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.13.0
+    VERSION 0.14.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX C
 )
@@ -203,6 +203,17 @@ set(UI_SOURCES
     src/ui/HardwareBringupWizard.cpp
 )
 
+set(VALIDATION_SOURCES
+    src/app/CliCommandLine.h
+    src/app/CliCommandLine.cpp
+    src/validation/ValidationResult.h
+    src/validation/ValidationResult.cpp
+    src/validation/ValidationReport.h
+    src/validation/ValidationReport.cpp
+    src/validation/MockValidationRunner.h
+    src/validation/MockValidationRunner.cpp
+)
+
 add_executable(NFSScanner
     src/main.cpp
     ${CORE_SOURCES}
@@ -215,10 +226,17 @@ add_executable(NFSScannerSelfCheck
     ${CORE_SOURCES}
 )
 
+add_executable(NFSScannerCli
+    src/tools/cli_main.cpp
+    ${CORE_SOURCES}
+    ${VALIDATION_SOURCES}
+)
+
 set_target_properties(NFSScanner PROPERTIES OUTPUT_NAME NFSScanner)
 set_target_properties(NFSScannerSelfCheck PROPERTIES OUTPUT_NAME NFSScannerSelfCheck)
+set_target_properties(NFSScannerCli PROPERTIES OUTPUT_NAME NFSScannerCli)
 
-foreach(target NFSScanner NFSScannerSelfCheck)
+foreach(target NFSScanner NFSScannerSelfCheck NFSScannerCli)
     target_include_directories(${target}
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
@@ -243,6 +261,6 @@ if(WIN32)
     set_target_properties(NFSScanner PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-install(TARGETS NFSScanner NFSScannerSelfCheck
+install(TARGETS NFSScanner NFSScannerSelfCheck NFSScannerCli
     RUNTIME DESTINATION bin
 )

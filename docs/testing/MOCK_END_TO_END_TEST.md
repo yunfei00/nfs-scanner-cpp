@@ -7,14 +7,23 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
 $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 ```
 
-## 自动化
+## 自动化（推荐）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/validation/run_full_mock_validation.ps1
+```
+
+报告：`validation_output/FULL_MOCK_VALIDATION_REPORT.md`
+
+或分步：
 
 ```powershell
 .\build\Release\NFSScannerSelfCheck.exe
+.\build\Release\NFSScannerCli.exe --profile mock_all --profile-dir config/profiles --run-full-validation --output validation_output
 scripts\hardware\run_mock_all_check.ps1
 ```
 
-预期：SelfCheck 163/163 PASS
+预期：SelfCheck 163/163 PASS；CLI 验证 17+ 项 PASS/WARN
 
 ## GUI Mock 流程
 
