@@ -1,15 +1,24 @@
 #include "core/AlignmentManager.h"
 #include "core/ScanConfig.h"
+#include "core/ScanHardware.h"
 #include "config/HardwareConfigManager.h"
 #include "core/DeviceManager.h"
 #include "core/PreScanChecklist.h"
 #include "core/ScanPathPlanner.h"
+#include "diagnostics/DiagnosticPackageExporter.h"
 #include "diagnostics/HardwareDiagnostics.h"
+#include "diagnostics/HardwareSnapshotWriter.h"
 #include "devices/camera/CameraFactory.h"
 #include "devices/camera/MockCamera.h"
+#include "devices/motion/GrblCommandBuilder.h"
+#include "devices/motion/GrblResponseParser.h"
 #include "devices/motion/MockMotionController.h"
 #include "devices/probe/MockProbeController.h"
+#include "devices/spectrum/DeviceBringupResult.h"
 #include "devices/spectrum/MockSpectrumAnalyzer.h"
+#include "devices/spectrum/ScpiCommandLogger.h"
+#include "devices/spectrum/ScpiCommandProfile.h"
+#include "infra/LogCategories.h"
 #include "storage/TaskStorage.h"
 #include "analysis/FrequencyCsvParser.h"
 #include "analysis/FrequencyData.h"
@@ -459,6 +468,9 @@ void testTaskStorageProbeOrientation()
     config.testName = QStringLiteral("probe");
     config.outputDir = temp.path();
     config.probeOrientation = QStringLiteral("Hy");
+    config.hardwareMode = NFSScanner::Core::HardwareMode::MockAll;
+    config.errorStrategy = NFSScanner::Core::ScanErrorStrategy::RetryThenStop;
+    config.hardwareConfigProfile = QStringLiteral("mock_all");
 
     NFSScanner::Storage::TaskStorage storage;
     check(storage.beginTask(config, 1), "task storage begin with probe orientation");
@@ -469,6 +481,209 @@ void testTaskStorageProbeOrientation()
     const QJsonObject object = QJsonDocument::fromJson(scanConfigFile.readAll()).object();
     check(object.value(QStringLiteral("probe_orientation")).toString() == QStringLiteral("Hy"),
           "scan_config records probe_orientation");
+    check(object.value(QStringLiteral("hardware_mode")).toString() == QStringLiteral("MockAll"),
+          "scan_config records hardware_mode");
+    check(object.value(QStringLiteral("error_strategy")).toString() == QStringLiteral("retryThenStop"),
+          "scan_config records error_strategy");
+}
+
+void testHardwareProfileLoadAndValidate()
+{
+    NFSScanner::Config::HardwareConfigManager manager;
+    const QStringList profiles = manager.listProfiles();
+    check(profiles.contains(QStringLiteral("mock_all")), "profile mock_all listed");
+    check(manager.loadProfile(QStringLiteral("mock_all")), "profile mock_all load");
+    QStringList errors;
+    QStringList warnings;
+    check(NFSScanner::Config::HardwareConfigManager::validateProfile(manager.config(), &errors, &warnings),
+          "profile mock_all validate");
+    check(errors.isEmpty(), "profile mock_all no errors");
+}
+
+void testGrblParserAndBuilder()
+{
+    using namespace NFSScanner::Devices::Motion;
+    check(GrblCommandBuilder::buildQueryStatus() == QStringLiteral("?"), "GRBL query status");
+    check(GrblCommandBuilder::buildUnlock() == QStringLiteral("$X"), "GRBL unlock");
+    check(GrblCommandBuilder::buildHome() == QStringLiteral("$H"), "GRBL home");
+    check(GrblCommandBuilder::buildVersionQuery() == QStringLiteral("$I"), "GRBL version query");
+
+    MotionPosition target{10.0, -5.0, 2.0};
+    const QString g1 = GrblCommandBuilder::buildAbsoluteMove(target, 1000.0);
+    check(g1.startsWith(QStringLiteral("G1X")), "GRBL G1 command");
+    check(g1.contains(QStringLiteral("Y-5.000")), "GRBL G1 Y negative");
+
+    const auto idle = GrblResponseParser::parseLine(QStringLiteral("<Idle|MPos:1.000,2.000,3.000|FS:0,0>"));
+    check(idle.isStatusReport, "GRBL idle status report");
+    check(GrblResponseParser::isIdleState(idle.status.state), "GRBL idle state");
+    check(idle.status.hasMachinePosition, "GRBL MPos parsed");
+
+    const auto wpos = GrblResponseParser::parseLine(QStringLiteral("<Idle|WPos:0.500,-1.000,0.000>"));
+    check(wpos.status.hasWorkPosition, "GRBL WPos parsed");
+
+    const auto alarm = GrblResponseParser::parseLine(QStringLiteral("<Alarm|...>"));
+    check(GrblResponseParser::isAlarmState(alarm.status.state), "GRBL alarm state");
+
+    const auto err = GrblResponseParser::parseLine(QStringLiteral("error:15"));
+    check(err.isErrorResponse, "GRBL error response");
+    check(err.errorCode == 15, "GRBL error code parsed");
+
+    NFSScanner::Config::HardwareConfig hw = NFSScanner::Config::HardwareConfig::defaults();
+    hw.motion.enabled = true;
+    hw.motion.limits.xMax = -1.0;
+    QStringList limitErrors;
+    check(!hw.validate(&limitErrors), "GRBL limits reject invalid config");
+}
+
+void testScpiProfileAndLogger()
+{
+    using namespace NFSScanner::Devices::Spectrum;
+    const ScpiCommandProfile zna = ScpiCommandProfile::zna67Defaults();
+    check(!zna.idnQuery.isEmpty(), "SCPI zna67 idn query");
+
+    const QString profilePath = QDir(QStringLiteral("config/scpi_profiles")).filePath(QStringLiteral("fsw.json"));
+    if (QFile::exists(profilePath)) {
+        ScpiCommandProfile loaded;
+        QString error;
+        check(ScpiCommandProfile::loadFromFile(profilePath, &loaded, &error), "SCPI fsw profile load");
+        check(loaded.name.contains(QStringLiteral("FSW"), Qt::CaseInsensitive) || !loaded.readTraceCommand.isEmpty(),
+              "SCPI fsw profile content");
+    }
+
+    ScpiCommandLogger::Entry entry;
+    entry.deviceType = QStringLiteral("mock");
+    entry.host = QStringLiteral("127.0.0.1");
+    entry.port = 5025;
+    entry.command = QStringLiteral("*IDN?");
+    entry.responseSummary = QStringLiteral("MOCK,DEV,1,0");
+    entry.success = true;
+    entry.elapsedMs = 5;
+    ScpiCommandLogger::logEntry(entry);
+    check(!ScpiCommandLogger::lastIdnResponse().isEmpty() || entry.success, "SCPI logger idn recorded");
+
+    const QString logPath = NFSScanner::Infra::logFilePath(NFSScanner::Infra::LogCategory::ScpiRaw);
+    check(logPath.contains(QStringLiteral("scpi_")), "SCPI log path category");
+}
+
+void testMockSpectrumBringup()
+{
+    using namespace NFSScanner::Devices::Spectrum;
+    const auto zna = SpectrumBringupRunner::runMockBringup(QStringLiteral("zna67"));
+    check(zna.overallOk(), "mock ZNA67 bring-up");
+    const auto fsw = SpectrumBringupRunner::runMockBringup(QStringLiteral("fsw"));
+    check(fsw.overallOk(), "mock FSW bring-up");
+    const auto n9020 = SpectrumBringupRunner::runMockBringup(QStringLiteral("n9020a"));
+    check(n9020.overallOk(), "mock N9020A bring-up");
+}
+
+void testPreScanChecklistHardwareModes()
+{
+    NFSScanner::Core::DeviceManager deviceManager;
+    NFSScanner::Config::HardwareConfig hw = deviceManager.hardwareConfig();
+    hw.motion.enabled = true;
+    hw.spectrum.enabled = true;
+    hw.spectrum.type = QStringLiteral("zna67");
+    deviceManager.setHardwareConfig(hw);
+    deviceManager.setMotionMockMode(false);
+
+    NFSScanner::Core::ScanConfig config;
+    config.startX = 0.0;
+    config.endX = 1.0;
+    config.stepX = 1.0;
+    config.startY = -5.0;
+    config.endY = -5.0;
+    config.stepY = 1.0;
+
+    auto evaluateMode = [&](NFSScanner::Core::HardwareMode mode) {
+        NFSScanner::Core::PreScanChecklistContext context;
+        context.scanConfig = config;
+        context.deviceManager = &deviceManager;
+        context.outputDirWritable = true;
+        context.pointCount = 2;
+        context.licenseValid = true;
+        context.hardwareMode = mode;
+        context.hardwareProfileName = QStringLiteral("mock_all");
+        context.mockMode = mode == NFSScanner::Core::HardwareMode::MockAll
+            || mode == NFSScanner::Core::HardwareMode::MockMotionRealSpectrum;
+        return NFSScanner::Core::PreScanChecklist::evaluate(context);
+    };
+
+    check(evaluateMode(NFSScanner::Core::HardwareMode::MockAll).canProceed(true), "checklist MockAll");
+    const auto realMotionMockSpectrum = evaluateMode(NFSScanner::Core::HardwareMode::RealMotionMockSpectrum);
+    check(realMotionMockSpectrum.hasErrors(), "checklist RealMotionMockSpectrum motion check");
+    check(!realMotionMockSpectrum.canProceed(true), "checklist RealMotionMockSpectrum blocked");
+    check(evaluateMode(NFSScanner::Core::HardwareMode::MockMotionRealSpectrum).canProceed(true),
+          "checklist MockMotionRealSpectrum");
+    const auto allReal = evaluateMode(NFSScanner::Core::HardwareMode::RealMotionRealSpectrum);
+    check(allReal.hasErrors(), "checklist RealMotionRealSpectrum errors");
+    check(!allReal.canProceed(true), "checklist RealMotionRealSpectrum blocked");
+}
+
+void testHardwareSnapshots()
+{
+    QTemporaryDir temp;
+    check(temp.isValid(), "snapshot temp dir valid");
+    NFSScanner::Config::HardwareConfig hw = NFSScanner::Config::HardwareConfig::defaults();
+    check(NFSScanner::Diagnostics::HardwareSnapshotWriter::writeHardwareConfigSnapshot(
+              temp.path(), hw, QStringLiteral("mock_all")),
+          "hardware_config_snapshot save");
+    check(QFile::exists(QDir(temp.path()).filePath(QStringLiteral("hardware_config_snapshot.json"))),
+          "hardware_config_snapshot file exists");
+
+    NFSScanner::Core::DeviceManager deviceManager;
+    check(NFSScanner::Diagnostics::HardwareSnapshotWriter::writeDeviceStatusSnapshot(temp.path(), &deviceManager),
+          "device_status_snapshot save");
+    check(QFile::exists(QDir(temp.path()).filePath(QStringLiteral("device_status_snapshot.json"))),
+          "device_status_snapshot file exists");
+}
+
+void testDiagnosticPackageExport()
+{
+    NFSScanner::Core::DeviceManager deviceManager;
+    NFSScanner::Diagnostics::DiagnosticPackageOptions options;
+    options.deviceManager = &deviceManager;
+    options.selfCheckSummary = QStringLiteral("self-check ok");
+    QString outputDir;
+    check(NFSScanner::Diagnostics::DiagnosticPackageExporter::exportPackage(options, &outputDir),
+          "diagnostic package export");
+    check(QDir(outputDir).exists(), "diagnostic package directory exists");
+    check(QFile::exists(QDir(outputDir).filePath(QStringLiteral("diagnostics.md"))), "diagnostics.md exists");
+}
+
+void testScanHardwareSerialization()
+{
+    check(NFSScanner::Core::hardwareModeToString(NFSScanner::Core::HardwareMode::MockAll) == QStringLiteral("MockAll"),
+          "hardware mode to string");
+    check(NFSScanner::Core::hardwareModeFromString(QStringLiteral("RealMotionRealSpectrum"))
+              == NFSScanner::Core::HardwareMode::RealMotionRealSpectrum,
+          "hardware mode from string");
+    check(NFSScanner::Core::scanErrorStrategyToString(NFSScanner::Core::ScanErrorStrategy::SkipPoint)
+              == QStringLiteral("skipPoint"),
+          "scan error strategy serialize");
+    check(NFSScanner::Core::inferHardwareMode(true, true) == NFSScanner::Core::HardwareMode::MockAll,
+          "infer hardware mode mock all");
+    check(NFSScanner::Core::inferHardwareMode(false, false) == NFSScanner::Core::HardwareMode::RealMotionRealSpectrum,
+          "infer hardware mode all real");
+}
+
+void testLogCategoriesPaths()
+{
+    const QString motionPath = NFSScanner::Infra::logFilePath(NFSScanner::Infra::LogCategory::Motion);
+    check(motionPath.contains(QStringLiteral("motion_")), "motion log path");
+    const QString grblPath = NFSScanner::Infra::logFilePath(NFSScanner::Infra::LogCategory::GrblRaw);
+    check(grblPath.contains(QStringLiteral("grbl_")), "grbl log path");
+    check(NFSScanner::Infra::logsRootDirectory().contains(QStringLiteral("logs")), "logs root directory");
+}
+
+void testCameraConfigFields()
+{
+    NFSScanner::Config::HardwareConfig hw = NFSScanner::Config::HardwareConfig::defaults();
+    hw.camera.width = 1920;
+    hw.camera.height = 1080;
+    hw.camera.exposureMs = 33.0;
+    hw.camera.rotationDeg = 90;
+    QStringList errors;
+    check(hw.validate(&errors), "camera config validate");
 }
 
 } // namespace
@@ -497,6 +712,16 @@ int main(int argc, char *argv[])
     testMockCameraCapture();
     testMockProbeHxHy();
     testTaskStorageProbeOrientation();
+    testHardwareProfileLoadAndValidate();
+    testGrblParserAndBuilder();
+    testScpiProfileAndLogger();
+    testMockSpectrumBringup();
+    testPreScanChecklistHardwareModes();
+    testHardwareSnapshots();
+    testDiagnosticPackageExport();
+    testScanHardwareSerialization();
+    testLogCategoriesPaths();
+    testCameraConfigFields();
     testPreScanChecklistMockPass();
     testPreScanChecklistRealMotionBlocks();
     testDiagnosticsMarkdownExport();

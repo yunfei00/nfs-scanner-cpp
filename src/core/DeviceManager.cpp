@@ -131,6 +131,34 @@ void DeviceManager::setHardwareConfig(const Config::HardwareConfig &config)
     emit hardwareConfigChanged();
 }
 
+bool DeviceManager::loadHardwareProfile(const QString &profileName)
+{
+    Config::HardwareConfigManager manager;
+    manager.config() = hardwareConfig_;
+    if (!manager.loadProfile(profileName)) {
+        setLastError(manager.lastError());
+        return false;
+    }
+    hardwareConfig_ = manager.config();
+    hardwareProfileName_ = manager.currentProfileName();
+    emit hardwareConfigChanged();
+    emit logMessage(QStringLiteral("已加载硬件 Profile: %1").arg(hardwareProfileName_));
+    return true;
+}
+
+bool DeviceManager::saveHardwareProfile(const QString &profileName)
+{
+    Config::HardwareConfigManager manager;
+    manager.config() = hardwareConfig_;
+    if (!manager.saveProfile(profileName)) {
+        setLastError(manager.lastError());
+        return false;
+    }
+    hardwareProfileName_ = manager.currentProfileName();
+    emit logMessage(QStringLiteral("已保存硬件 Profile: %1").arg(hardwareProfileName_));
+    return true;
+}
+
 NFSScanner::Devices::Motion::SerialMotionController *DeviceManager::motionController()
 {
     return serialMotion_;

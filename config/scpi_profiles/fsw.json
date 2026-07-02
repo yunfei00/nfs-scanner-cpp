@@ -1,0 +1,11 @@
+{
+  "name": "fsw",
+  "idnQuery": "*IDN?",
+  "clearStatusCommand": "*CLS",
+  "systemErrorQuery": "SYST:ERR?",
+  "setStartFreqCommand": "FREQ:START %1",
+  "setStopFreqCommand": "FREQ:STOP %1",
+  "setSweepPointsCommand": "SWE:POIN %1",
+  "singleSweepCommand": "INIT:IMM",
+  "readTraceCommand": "TRAC:DATA? TRACE1"
+}

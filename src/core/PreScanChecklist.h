@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/ScanConfig.h"
+#include "core/ScanHardware.h"
 
 #include <QString>
 #include <QVector>
@@ -45,6 +46,8 @@ struct PreScanChecklistContext
     bool hasAlignment = false;
     int pointCount = 0;
     QString plannerError;
+    HardwareMode hardwareMode = HardwareMode::MockAll;
+    QString hardwareProfileName;
 };
 
 class PreScanChecklist

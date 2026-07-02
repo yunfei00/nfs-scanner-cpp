@@ -267,6 +267,11 @@ QGroupBox *ScanPage::createTestInfoGroup()
     layout->addRow(QStringLiteral("测试名称"), testNameEdit_);
     layout->addRow(QStringLiteral("探头方向"), probeOrientationCombo_);
 
+    hardwareModeLabel_ = new QLabel(QStringLiteral("硬件模式: MockAll"), group);
+    hardwareModeLabel_->setWordWrap(true);
+    hardwareModeLabel_->setStyleSheet(QStringLiteral("color: #0066cc; font-weight: bold;"));
+    layout->addRow(QStringLiteral("当前模式"), hardwareModeLabel_);
+
     return group;
 }
 
@@ -524,6 +529,13 @@ void ScanPage::updateActionButtons()
     pauseScanButton_->setEnabled(running || paused);
     stopScanButton_->setEnabled(preparing || running || paused);
     setScanParamsLocked(preparing || running || paused || stopping);
+}
+
+void ScanPage::setHardwareModeText(const QString &text)
+{
+    if (hardwareModeLabel_) {
+        hardwareModeLabel_->setText(text);
+    }
 }
 
 Core::ScanConfig ScanPage::readScanConfigFromUi() const

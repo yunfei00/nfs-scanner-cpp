@@ -1,19 +1,20 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.11.0-hardware-alpha** 在 v0.10.0-alpha 基础上完成真实硬件软件层预实现：统一设备管理、硬件配置、扫描前 Checklist、诊断导出与 Mock fallback。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.12.0-hardware-ready** 在 v0.11.0 基础上完成真实硬件预实现第二阶段：Profile 切换、GRBL/SCPI 调试链、Bring-up 测试、诊断包、硬件调试面板与扫描硬件模式接入。
 
-## 当前版本：v0.11.0-hardware-alpha
+## 当前版本：v0.12.0-hardware-ready
 
 | 能力 | 说明 |
 |------|------|
 | 四页主框架 | 扫描 / 设备 / 分析 / 报告 |
-| 硬件配置 | `config/hardware_config.json` — 运动/频谱/相机/探头 |
+| 硬件配置 | `config/hardware_config.json` + **8 个 Profile**（`config/profiles/`） |
 | 设备管理 | `DeviceManager` 统一 connect/disconnect/healthCheck |
-| 扫描前检查 | `PreScanChecklist` — error 阻止 / warning 可继续 |
-| 设备诊断 | Help → 诊断信息 → 导出 `logs/diagnostics_*.md` |
-| 探头方向 | 扫描参数 Hx/Hy → `scan_config.json` / 报告 |
-| 自检 | `NFSScannerSelfCheck.exe` — **84/84 PASS** |
-| 真实设备 | GRBL / SCPI / Mock 相机与探头（硬件需人工验证，见 [硬件联调指南](docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md)） |
+| 扫描前检查 | `PreScanChecklist` — 四种 hardware_mode / error 阻止 / warning 可继续 |
+| 硬件调试 | Help → **硬件调试面板**（GRBL/SCPI/相机/探头原始命令） |
+| 诊断包 | Help → **导出诊断包** → `logs/diagnostics/NFSScanner_Diagnostics_*/` |
+| 模拟器 | `tools/simulators/` — GRBL TCP + SCPI TCP（不接硬件可测通信链） |
+| 自检 | `NFSScannerSelfCheck.exe` — **135/135 PASS** |
+| 真实设备 | GRBL / SCPI / Mock 相机与探头（**接口已实现，现场未验证**） |
 
 ---
 
@@ -59,11 +60,56 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScannerSelfCheck.exe
 ```
 
-预期：`All self-check tests passed.`（84 项，含硬件配置、Mock 设备、PreScanChecklist、诊断导出、probe_orientation）
+预期：`All self-check tests passed.`（135 项，含 Profile、GRBL/SCPI parser、Bring-up、hardware_mode、诊断包、快照、日志分类）
 
 ---
 
-## 真实硬件支持（v0.11.0-hardware-alpha）
+## 真实硬件预实现状态（v0.12.0-hardware-ready）
+
+### 支持设备列表
+
+| 子系统 | Mock | 真实接口 | 当前验证状态 |
+|--------|------|----------|--------------|
+| 运动平台 | MockMotionController | GRBL 串口（SerialMotionController） | Mock 已验证；GRBL 待现场 |
+| 频谱仪 | MockSpectrumAnalyzer | ZNA67 / FSW / N9020A / Generic SCPI | Mock 已验证；SCPI 待现场 |
+| 相机 | MockCamera | USB Stub / Industrial Stub | Mock 已验证；Stub 待 SDK |
+| 探头 Hx/Hy | MockProbeController | Serial Stub / SDK Stub | Mock 已验证；Stub 待现场 |
+
+### Profile 快速切换
+
+`config/profiles/` 提供 8 个预设：`mock_all`、`motion_only_grbl`、`spectrum_only_*`、`grbl_*_default`。  
+设备页 → Profile 下拉框 → **加载 / 保存 / 校验 / 打开配置目录**。  
+详见 [docs/hardware/HARDWARE_CONFIG_PROFILES.md](docs/hardware/HARDWARE_CONFIG_PROFILES.md)
+
+### 不接硬件时能做什么
+
+- Mock 全流程扫描与分析
+- 运行 `NFSScannerSelfCheck.exe`（135 项）
+- 使用 Python 模拟器验证 GRBL/SCPI TCP 链路（`tools/simulators/`）
+- 设备页单项测试、Bring-up Test（Mock）、导出 Bring-up 报告
+- 导出诊断包（Help → 导出诊断包）
+
+### 推荐现场调试顺序
+
+1. `mock_all` — 软件演示基线  
+2. `motion_only_grbl` — 单独调运动  
+3. `spectrum_only_zna67` / `fsw` / `n9020a` — 单独调频谱仪  
+4. `grbl_*_default` — 运动 + 对应仪表  
+5. 相机 → 探头 → 完整扫描  
+
+详见 [docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md](docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md)
+
+### 关键入口
+
+- **hardware_config.json** — 主配置  
+- **DevicePage** — Profile、单项测试、Bring-up、SCPI 日志  
+- **HardwareDebugDialog** — Help → 硬件调试面板  
+- **PreScanChecklist** — 扫描前自动检查（扫描页显示 hardware_mode）  
+- **Diagnostics package** — [docs/hardware/DIAGNOSTIC_PACKAGE_GUIDE.md](docs/hardware/DIAGNOSTIC_PACKAGE_GUIDE.md)
+
+---
+
+## 真实硬件支持（配置说明）
 
 ### 配置文件
 
@@ -108,13 +154,13 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_msvc.ps1
-powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.10.0-alpha
+powershell -ExecutionPolicy Bypass -File scripts/package_portable_windows.ps1 -Version v0.12.0-hardware-ready
 ```
 
 输出：
 
 - `dist/NFSScanner/` — 含 `NFSScanner.exe`、Qt6 DLL、`platforms/`、`styles/`、`resources/`
-- `artifacts/NFSScanner-Windows-Portable-v0.10.0-alpha.zip`
+- `artifacts/NFSScanner-Windows-Portable-v0.12.0-hardware-ready.zip`
 
 ---
 

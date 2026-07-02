@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/ScanHardware.h"
+
 #include <algorithm>
 
 #include <QString>
@@ -26,6 +28,13 @@ struct ScanConfig
     bool snakeMode = true;
 
     QString probeOrientation = QStringLiteral("Hx");
+
+    HardwareMode hardwareMode = HardwareMode::MockAll;
+    ScanErrorStrategy errorStrategy = ScanErrorStrategy::StopOnError;
+    QString hardwareConfigProfile;
+    QString motionType = QStringLiteral("mock");
+    QString spectrumType = QStringLiteral("mock");
+    QString cameraType = QStringLiteral("mock");
 
     QString projectName;
     QString testName;

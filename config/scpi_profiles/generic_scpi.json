@@ -1,0 +1,19 @@
+{
+  "name": "generic_scpi",
+  "idnQuery": "*IDN?",
+  "resetCommand": "*RST",
+  "clearStatusCommand": "*CLS",
+  "systemErrorQuery": "SYST:ERR?",
+  "setStartFreqCommand": "SENS:FREQ:STAR %1",
+  "setStopFreqCommand": "SENS:FREQ:STOP %1",
+  "setCenterFreqCommand": "SENS:FREQ:CENT %1",
+  "setSpanCommand": "SENS:FREQ:SPAN %1",
+  "setRbwCommand": "SENS:BAND:RES %1",
+  "setVbwCommand": "SENS:BAND:VID %1",
+  "setSweepPointsCommand": "SENS:SWE:POIN %1",
+  "setSweepTimeCommand": "SENS:SWE:TIME %1",
+  "singleSweepCommand": "INIT:IMM",
+  "waitOperationCompleteQuery": "*OPC?",
+  "readTraceCommand": "TRAC:DATA? TRACE1",
+  "readComplexTraceCommand": "CALC:DATA? SDATA"
+}

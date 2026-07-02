@@ -1,6 +1,7 @@
 #include "storage/TaskStorage.h"
 
 #include "app/AppVersion.h"
+#include "core/ScanHardware.h"
 #include "devices/spectrum/SpectrumParsingUtils.h"
 
 #include <QDateTime>
@@ -113,7 +114,7 @@ bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
     pointsPath_ = taskDir.filePath(QStringLiteral("points.csv"));
     tracesPath_ = taskDir.filePath(QStringLiteral("traces.csv"));
 
-    if (!writeTextFile(pointsPath_, QStringLiteral("index,x,y,z,timestamp\n"))) {
+    if (!writeTextFile(pointsPath_, QStringLiteral("index,x,y,z,timestamp,move_start,move_end,acq_start,acq_end,motion_status,spectrum_status,retry_count\n"))) {
         return false;
     }
     if (!writeTextFile(tracesPath_, QString())) {
@@ -129,19 +130,32 @@ bool TaskStorage::beginTask(const Core::ScanConfig &config, int pointCount)
     return true;
 }
 
-bool TaskStorage::appendPoint(const Core::ScanPoint &point, const QDateTime &timestamp)
+bool TaskStorage::appendPoint(const Core::ScanPoint &point,
+                              const QDateTime &timestamp,
+                              const PointTimingRecord &timing)
 {
     if (taskDir_.isEmpty()) {
         setError(QStringLiteral("Task directory has not been created; cannot write scan point."));
         return false;
     }
 
-    const QString line = QStringLiteral("%1,%2,%3,%4,%5")
+    auto ts = [](const QDateTime &time) {
+        return time.isValid() ? time.toString(Qt::ISODateWithMs) : QString();
+    };
+
+    const QString line = QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12")
                              .arg(point.index)
-                             .arg(csvNumber(point.x, 3),
-                                  csvNumber(point.y, 3),
-                                  csvNumber(point.z, 3),
-                                  timestamp.toString(Qt::ISODateWithMs));
+                             .arg(csvNumber(point.x, 3))
+                             .arg(csvNumber(point.y, 3))
+                             .arg(csvNumber(point.z, 3))
+                             .arg(timestamp.toString(Qt::ISODateWithMs))
+                             .arg(ts(timing.moveStart))
+                             .arg(ts(timing.moveEnd))
+                             .arg(ts(timing.acquisitionStart))
+                             .arg(ts(timing.acquisitionEnd))
+                             .arg(timing.motionStatus)
+                             .arg(timing.spectrumStatus)
+                             .arg(timing.retryCount);
     return appendTextLine(pointsPath_, line);
 }
 
@@ -301,6 +315,12 @@ bool TaskStorage::writeMetaJson(const Core::ScanConfig &config, int pointCount)
     object.insert(QStringLiteral("test_name"), config.testName);
     object.insert(QStringLiteral("point_count"), pointCount);
     object.insert(QStringLiteral("probe_orientation"), config.probeOrientation);
+    object.insert(QStringLiteral("hardware_mode"), Core::hardwareModeToString(config.hardwareMode));
+    object.insert(QStringLiteral("hardware_config_profile"), config.hardwareConfigProfile);
+    object.insert(QStringLiteral("motion_type"), config.motionType);
+    object.insert(QStringLiteral("spectrum_type"), config.spectrumType);
+    object.insert(QStringLiteral("camera_type"), config.cameraType);
+    object.insert(QStringLiteral("error_strategy"), Core::scanErrorStrategyToString(config.errorStrategy));
     object.insert(QStringLiteral("task_dir"), taskDir_);
 
     const QString path = QDir(taskDir_).filePath(QStringLiteral("meta.json"));
@@ -324,6 +344,9 @@ bool TaskStorage::writeScanConfigJson(const Core::ScanConfig &config)
     object.insert(QStringLiteral("dwellMs"), config.dwellMs);
     object.insert(QStringLiteral("snakeMode"), config.snakeMode);
     object.insert(QStringLiteral("probe_orientation"), config.probeOrientation);
+    object.insert(QStringLiteral("hardware_mode"), Core::hardwareModeToString(config.hardwareMode));
+    object.insert(QStringLiteral("hardware_config_profile"), config.hardwareConfigProfile);
+    object.insert(QStringLiteral("error_strategy"), Core::scanErrorStrategyToString(config.errorStrategy));
     object.insert(QStringLiteral("projectName"), config.projectName);
     object.insert(QStringLiteral("testName"), config.testName);
     object.insert(QStringLiteral("outputDir"), config.outputDir);

@@ -18,6 +18,7 @@ struct SpectrumAcquisitionResult
     double y = 0.0;
     double z = 0.0;
     QDateTime timestamp;
+    int retryCount = 0;
 };
 
 } // namespace NFSScanner::Devices::Spectrum

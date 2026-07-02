@@ -51,8 +51,16 @@ struct CameraHardwareConfig
     bool enabled = false;
     QString type = QStringLiteral("mock");
     int deviceIndex = 0;
+    int width = 640;
+    int height = 480;
+    double exposureMs = 0.0;
+    double gain = 0.0;
+    QString saveFormat = QStringLiteral("png");
     QString saveDir = QStringLiteral("images");
     int timeoutMs = 3000;
+    bool flipHorizontal = false;
+    bool flipVertical = false;
+    int rotationDeg = 0;
 };
 
 struct ProbeHardwareConfig
@@ -61,6 +69,12 @@ struct ProbeHardwareConfig
     QString type = QStringLiteral("mock");
     QString orientation = QStringLiteral("Hx");
     int switchDelayMs = 500;
+    QString port = QStringLiteral("COM4");
+    int baudrate = 115200;
+    QString hxCommand = QStringLiteral("HX");
+    QString hyCommand = QStringLiteral("HY");
+    QString queryCommand = QStringLiteral("?");
+    bool verifyAfterSwitch = false;
 };
 
 struct HardwareConfig
@@ -75,6 +89,7 @@ struct HardwareConfig
 };
 
 QString defaultHardwareConfigPath();
+QString defaultProfilesDirectory();
 QString probeOrientationToString(const QString &orientation);
 bool isValidProbeOrientation(const QString &orientation);
 

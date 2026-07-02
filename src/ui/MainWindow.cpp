@@ -5,7 +5,10 @@
 #include "core/PreScanChecklist.h"
 #include "core/DeviceManager.h"
 #include "core/ScanManager.h"
+#include "core/ScanHardware.h"
+#include "diagnostics/DiagnosticPackageExporter.h"
 #include "diagnostics/HardwareDiagnostics.h"
+#include "ui/HardwareDebugDialog.h"
 #include "license/LicenseManager.h"
 #include "project/ProjectManager.h"
 #include "report/ReportData.h"
@@ -285,6 +288,8 @@ void MainWindow::setupMenus()
     auto *helpMenu = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
     helpMenu->addAction(QStringLiteral("关于"), this, &MainWindow::showAboutDialog);
     helpMenu->addAction(QStringLiteral("诊断信息"), this, &MainWindow::showDiagnosticsDialog);
+    helpMenu->addAction(QStringLiteral("导出诊断包"), this, &MainWindow::exportDiagnosticPackage);
+    helpMenu->addAction(QStringLiteral("硬件调试面板"), this, &MainWindow::showHardwareDebugDialog);
 }
 
 void MainWindow::setupToolBar()
@@ -566,6 +571,28 @@ void MainWindow::showDiagnosticsDialog()
     box.exec();
 }
 
+void MainWindow::showHardwareDebugDialog()
+{
+    HardwareDebugDialog dialog(deviceManager_, motionController_, this);
+    dialog.exec();
+}
+
+void MainWindow::exportDiagnosticPackage()
+{
+    Diagnostics::DiagnosticPackageOptions options;
+    options.deviceManager = deviceManager_;
+    options.licenseManager = licenseManager_;
+    options.projectManager = projectManager_;
+    options.selfCheckSummary = QStringLiteral("Run NFSScannerSelfCheck.exe for latest automated results.");
+    QString outputDir;
+    if (Diagnostics::DiagnosticPackageExporter::exportPackage(options, &outputDir)) {
+        appendLog(QStringLiteral("诊断包已导出: %1").arg(outputDir));
+        QMessageBox::information(this, QStringLiteral("诊断包"), QStringLiteral("已导出至:\n%1").arg(outputDir));
+    } else {
+        QMessageBox::warning(this, QStringLiteral("诊断包"), QStringLiteral("导出失败。"));
+    }
+}
+
 void MainWindow::switchToPage(AppPage page)
 {
     currentPage_ = page;
@@ -628,6 +655,7 @@ void MainWindow::setupScanManager()
 
     scanManager_->setSpectrumDeviceHost(deviceManager_ ? deviceManager_->spectrumDeviceHost() : nullptr);
     scanManager_->setSpectrumDeviceThread(deviceManager_ ? deviceManager_->spectrumDeviceThread() : nullptr);
+    scanManager_->setDeviceManager(deviceManager_);
 
     connect(scanManager_, &Core::ScanManager::stateChanged, this, [this](const QString &stateText) {
         setAppState(stateText);
@@ -716,6 +744,13 @@ void MainWindow::setupScanPageBindings()
         context.deviceManager = deviceManager_;
         context.projectExists = projectManager_ && projectManager_->hasOpenProject();
         context.mockMode = devicePage_ && devicePage_->isMockMode();
+        if (deviceManager_) {
+            const bool motionMock = context.mockMode || deviceManager_->motionMockMode();
+            const bool spectrumMock = context.mockMode
+                || deviceManager_->hardwareConfig().spectrum.type.compare(QStringLiteral("mock"), Qt::CaseInsensitive) == 0;
+            context.hardwareMode = Core::inferHardwareMode(motionMock, spectrumMock);
+            context.hardwareProfileName = deviceManager_->hardwareProfileName();
+        }
         context.pointCount = pointCount;
         context.plannerError = plannerError;
         context.hasAlignment = alignmentManager_.config().enabled;
@@ -767,6 +802,16 @@ void MainWindow::setupScanPageBindings()
         manager->setSpectrumAnalyzer(analyzer && analyzer->isConnected() ? analyzer : nullptr);
         manager->setMotionController(motionController_);
         manager->setUseRealMotion(!devicePage_->isMockMode());
+        manager->setDeviceManager(deviceManager_);
+        if (deviceManager_) {
+            manager->setHardwareProfileName(deviceManager_->hardwareProfileName());
+            const bool motionMock = devicePage_->isMockMode() || deviceManager_->motionMockMode();
+            const bool spectrumMock = devicePage_->isMockMode()
+                || deviceManager_->hardwareConfig().spectrum.type.compare(QStringLiteral("mock"), Qt::CaseInsensitive) == 0;
+            if (scanPage_) {
+                scanPage_->setHardwareModeText(Core::hardwareModeToString(Core::inferHardwareMode(motionMock, spectrumMock)));
+            }
+        }
         Core::ScanAcquisitionOptions acquisitionOptions;
         acquisitionOptions.timeoutMs = devicePage_->acquisitionTimeoutMs();
         acquisitionOptions.retryCount = devicePage_->acquisitionRetryCount();

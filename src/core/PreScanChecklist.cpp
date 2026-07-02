@@ -2,6 +2,7 @@
 
 #include "core/DeviceManager.h"
 #include "config/HardwareConfig.h"
+#include "core/ScanHardware.h"
 
 namespace NFSScanner::Core {
 
@@ -75,6 +76,13 @@ bool pointWithinLimits(double value, double minValue, double maxValue)
 PreScanChecklistResult PreScanChecklist::evaluate(const PreScanChecklistContext &context)
 {
     PreScanChecklistResult result;
+
+    addItem(&result.items, QStringLiteral("hardware_mode"), ChecklistLevel::Info,
+            QStringLiteral("硬件模式: %1%2")
+                .arg(hardwareModeToString(context.hardwareMode),
+                     context.hardwareProfileName.isEmpty()
+                         ? QString()
+                         : QStringLiteral(" (Profile: %1)").arg(context.hardwareProfileName)));
 
     if (!context.projectExists) {
         addItem(&result.items, QStringLiteral("project"), ChecklistLevel::Warning,

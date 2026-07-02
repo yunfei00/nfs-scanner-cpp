@@ -2,6 +2,7 @@
 
 #include "devices/spectrum/SpectrumConfig.h"
 #include "devices/spectrum/SpectrumTrace.h"
+#include "devices/spectrum/DeviceBringupResult.h"
 
 #include <QWidget>
 
@@ -168,10 +169,12 @@ private:
     QCheckBox *hwProbeEnabledCheck_ = nullptr;
     QComboBox *hwProbeTypeCombo_ = nullptr;
     QComboBox *hwProbeOrientationCombo_ = nullptr;
+    QComboBox *hwProfileCombo_ = nullptr;
 
     NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *currentAnalyzer_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumConfig currentSpectrumConfig_;
     NFSScanner::Devices::Spectrum::SpectrumTrace lastSpectrumTrace_;
+    NFSScanner::Devices::Spectrum::DeviceBringupResult lastBringupResult_;
 };
 
 } // namespace NFSScanner::UI

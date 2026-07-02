@@ -1,0 +1,11 @@
+{
+  "name": "n9020a",
+  "idnQuery": "*IDN?",
+  "clearStatusCommand": "*CLS",
+  "systemErrorQuery": "SYST:ERR?",
+  "setStartFreqCommand": ":SENS:FREQ:STAR %1",
+  "setStopFreqCommand": ":SENS:FREQ:STOP %1",
+  "setSweepPointsCommand": ":SENS:SWE:POIN %1",
+  "singleSweepCommand": ":INIT:IMM",
+  "readTraceCommand": ":TRAC:DATA? TRACE1"
+}

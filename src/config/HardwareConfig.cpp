@@ -167,11 +167,33 @@ bool HardwareConfig::validate(QStringList *errors) const
 QString defaultHardwareConfigPath()
 {
     const QString appDir = QCoreApplication::applicationDirPath();
-    const QDir configDir(QDir(appDir).filePath(QStringLiteral("../config")));
-    if (configDir.exists()) {
-        return configDir.filePath(QStringLiteral("hardware_config.json"));
+    const QStringList candidates{
+        QDir(appDir).filePath(QStringLiteral("../config/hardware_config.json")),
+        QDir(appDir).filePath(QStringLiteral("../../config/hardware_config.json")),
+        QDir(appDir).filePath(QStringLiteral("config/hardware_config.json")),
+    };
+    for (const QString &path : candidates) {
+        if (QFile::exists(path)) {
+            return path;
+        }
     }
-    return QDir(appDir).filePath(QStringLiteral("config/hardware_config.json"));
+    return candidates.last();
+}
+
+QString defaultProfilesDirectory()
+{
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates{
+        QDir(appDir).filePath(QStringLiteral("../config/profiles")),
+        QDir(appDir).filePath(QStringLiteral("../../config/profiles")),
+        QDir(appDir).filePath(QStringLiteral("config/profiles")),
+    };
+    for (const QString &path : candidates) {
+        if (QDir(path).exists()) {
+            return QDir(path).absolutePath();
+        }
+    }
+    return QDir(candidates.last()).absolutePath();
 }
 
 QString probeOrientationToString(const QString &orientation)
@@ -247,8 +269,16 @@ QJsonObject hardwareConfigToJson(const HardwareConfig &config)
     writeBool(&camera, QStringLiteral("enabled"), config.camera.enabled);
     writeString(&camera, QStringLiteral("type"), config.camera.type);
     writeInt(&camera, QStringLiteral("device_index"), config.camera.deviceIndex);
+    writeInt(&camera, QStringLiteral("width"), config.camera.width);
+    writeInt(&camera, QStringLiteral("height"), config.camera.height);
+    writeDouble(&camera, QStringLiteral("exposure_ms"), config.camera.exposureMs);
+    writeDouble(&camera, QStringLiteral("gain"), config.camera.gain);
+    writeString(&camera, QStringLiteral("save_format"), config.camera.saveFormat);
     writeString(&camera, QStringLiteral("save_dir"), config.camera.saveDir);
     writeInt(&camera, QStringLiteral("timeout_ms"), config.camera.timeoutMs);
+    writeBool(&camera, QStringLiteral("flip_horizontal"), config.camera.flipHorizontal);
+    writeBool(&camera, QStringLiteral("flip_vertical"), config.camera.flipVertical);
+    writeInt(&camera, QStringLiteral("rotation_deg"), config.camera.rotationDeg);
     root.insert(QStringLiteral("camera"), camera);
 
     QJsonObject probe;
@@ -256,6 +286,12 @@ QJsonObject hardwareConfigToJson(const HardwareConfig &config)
     writeString(&probe, QStringLiteral("type"), config.probe.type);
     writeString(&probe, QStringLiteral("orientation"), config.probe.orientation);
     writeInt(&probe, QStringLiteral("switch_delay_ms"), config.probe.switchDelayMs);
+    writeString(&probe, QStringLiteral("port"), config.probe.port);
+    writeInt(&probe, QStringLiteral("baudrate"), config.probe.baudrate);
+    writeString(&probe, QStringLiteral("hx_command"), config.probe.hxCommand);
+    writeString(&probe, QStringLiteral("hy_command"), config.probe.hyCommand);
+    writeString(&probe, QStringLiteral("query_command"), config.probe.queryCommand);
+    writeBool(&probe, QStringLiteral("verify_after_switch"), config.probe.verifyAfterSwitch);
     root.insert(QStringLiteral("probe"), probe);
 
     return root;
@@ -313,8 +349,32 @@ bool hardwareConfigFromJson(const QJsonObject &root, HardwareConfig *config, QSt
         readBool(camera, QStringLiteral("enabled"), &config->camera.enabled, target);
         readString(camera, QStringLiteral("type"), &config->camera.type, target);
         readInt(camera, QStringLiteral("device_index"), &config->camera.deviceIndex, target);
+        if (camera.contains(QStringLiteral("width"))) {
+            readInt(camera, QStringLiteral("width"), &config->camera.width, target);
+        }
+        if (camera.contains(QStringLiteral("height"))) {
+            readInt(camera, QStringLiteral("height"), &config->camera.height, target);
+        }
+        if (camera.contains(QStringLiteral("exposure_ms"))) {
+            readDouble(camera, QStringLiteral("exposure_ms"), &config->camera.exposureMs, target);
+        }
+        if (camera.contains(QStringLiteral("gain"))) {
+            readDouble(camera, QStringLiteral("gain"), &config->camera.gain, target);
+        }
+        if (camera.contains(QStringLiteral("save_format"))) {
+            readString(camera, QStringLiteral("save_format"), &config->camera.saveFormat, target);
+        }
         readString(camera, QStringLiteral("save_dir"), &config->camera.saveDir, target);
         readInt(camera, QStringLiteral("timeout_ms"), &config->camera.timeoutMs, target);
+        if (camera.contains(QStringLiteral("flip_horizontal"))) {
+            readBool(camera, QStringLiteral("flip_horizontal"), &config->camera.flipHorizontal, target);
+        }
+        if (camera.contains(QStringLiteral("flip_vertical"))) {
+            readBool(camera, QStringLiteral("flip_vertical"), &config->camera.flipVertical, target);
+        }
+        if (camera.contains(QStringLiteral("rotation_deg"))) {
+            readInt(camera, QStringLiteral("rotation_deg"), &config->camera.rotationDeg, target);
+        }
     }
 
     if (!root.contains(QStringLiteral("probe")) || !root.value(QStringLiteral("probe")).isObject()) {
@@ -325,6 +385,24 @@ bool hardwareConfigFromJson(const QJsonObject &root, HardwareConfig *config, QSt
         readString(probe, QStringLiteral("type"), &config->probe.type, target);
         readString(probe, QStringLiteral("orientation"), &config->probe.orientation, target);
         readInt(probe, QStringLiteral("switch_delay_ms"), &config->probe.switchDelayMs, target);
+        if (probe.contains(QStringLiteral("port"))) {
+            readString(probe, QStringLiteral("port"), &config->probe.port, target);
+        }
+        if (probe.contains(QStringLiteral("baudrate"))) {
+            readInt(probe, QStringLiteral("baudrate"), &config->probe.baudrate, target);
+        }
+        if (probe.contains(QStringLiteral("hx_command"))) {
+            readString(probe, QStringLiteral("hx_command"), &config->probe.hxCommand, target);
+        }
+        if (probe.contains(QStringLiteral("hy_command"))) {
+            readString(probe, QStringLiteral("hy_command"), &config->probe.hyCommand, target);
+        }
+        if (probe.contains(QStringLiteral("query_command"))) {
+            readString(probe, QStringLiteral("query_command"), &config->probe.queryCommand, target);
+        }
+        if (probe.contains(QStringLiteral("verify_after_switch"))) {
+            readBool(probe, QStringLiteral("verify_after_switch"), &config->probe.verifyAfterSwitch, target);
+        }
     }
 
     return target->isEmpty();

@@ -65,3 +65,7 @@ Testing/
 
 # Package manager output
 vcpkg_installed/
+
+__pycache__/
+*.pyc
+

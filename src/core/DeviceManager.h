@@ -79,6 +79,9 @@ public:
     bool loadHardwareConfig(const QString &path = QString());
     bool saveHardwareConfig(const QString &path = QString());
     void setHardwareConfig(const Config::HardwareConfig &config);
+    bool loadHardwareProfile(const QString &profileName);
+    bool saveHardwareProfile(const QString &profileName);
+    QString hardwareProfileName() const { return hardwareProfileName_; }
 
     NFSScanner::Devices::Motion::SerialMotionController *motionController();
     NFSScanner::Devices::Motion::IMotionController *motionInterface();
@@ -144,6 +147,7 @@ private:
 
     Config::HardwareConfig hardwareConfig_;
     QString hardwareConfigPath_;
+    QString hardwareProfileName_;
 
     NFSScanner::Devices::Motion::SerialMotionController *serialMotion_ = nullptr;
     NFSScanner::Devices::Motion::MockMotionController *mockMotion_ = nullptr;

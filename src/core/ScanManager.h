@@ -2,13 +2,12 @@
 
 #include "core/ScanConfig.h"
 #include "core/ScanPoint.h"
-#include "devices/spectrum/ISpectrumAnalyzer.h"
+#include "storage/TaskStorage.h"
 #include "devices/spectrum/MockSpectrumAnalyzer.h"
 #include "devices/spectrum/SpectrumAcquisitionRequest.h"
 #include "devices/spectrum/SpectrumAcquisitionResult.h"
 #include "devices/spectrum/SpectrumAcquisitionWorker.h"
 #include "devices/spectrum/SpectrumConfig.h"
-#include "storage/TaskStorage.h"
 
 #include <QObject>
 #include <QElapsedTimer>
@@ -22,10 +21,13 @@ class IMotionController;
 }
 
 namespace NFSScanner::Devices::Spectrum {
+class ISpectrumAnalyzer;
 class SpectrumDeviceHost;
 }
 
 namespace NFSScanner::Core {
+
+class DeviceManager;
 
 enum class ScanState {
     Idle,
@@ -66,6 +68,8 @@ public:
     void setAcquisitionOptions(const ScanAcquisitionOptions &options);
     void setMotionController(NFSScanner::Devices::Motion::IMotionController *motionController);
     void setUseRealMotion(bool enabled);
+    void setDeviceManager(NFSScanner::Core::DeviceManager *deviceManager);
+    void setHardwareProfileName(const QString &profileName);
 
     ScanState state() const;
     int currentIndex() const;
@@ -104,6 +108,9 @@ private:
     NFSScanner::Devices::Spectrum::SpectrumConfig spectrumConfig_;
     NFSScanner::Devices::Spectrum::MockSpectrumAnalyzer fallbackSpectrum_;
     NFSScanner::Devices::Motion::IMotionController *motionController_ = nullptr;
+    DeviceManager *deviceManager_ = nullptr;
+    QString hardwareProfileName_;
+    Storage::PointTimingRecord currentPointTiming_;
     ScanAcquisitionOptions acquisitionOptions_;
     QThread *acquisitionThread_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumAcquisitionWorker *acquisitionWorker_ = nullptr;

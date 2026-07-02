@@ -11,7 +11,7 @@
 |---|-----|------|------|------|
 | B1 | Windows MSVC Release | `scripts/build_windows_msvc.ps1` | ✅ PASS | 2026-07-02 |
 | B2 | CMake 配置 | VS 2022 Build Tools + Qt 6.8.3 | ✅ | 2026-06-30 |
-| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 84/84 PASS | 2026-07-02 |
+| B3 | self_check 构建 | `NFSScannerSelfCheck.exe` | ✅ 135/135 PASS | 2026-07-02 |
 
 **环境记录：**
 

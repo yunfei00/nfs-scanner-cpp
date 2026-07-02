@@ -1,6 +1,6 @@
 #include "ui/pages/DevicePage.h"
 
-#include "config/HardwareConfig.h"
+#include "config/HardwareConfigManager.h"
 #include "core/DeviceManager.h"
 #include "core/ScanManager.h"
 #include "devices/camera/CameraFactory.h"
@@ -11,9 +11,20 @@
 #include "devices/spectrum/SpectrumAnalyzerFactory.h"
 #include "ui/UiFormUtils.h"
 
+#include "devices/spectrum/DeviceBringupResult.h"
+#include "devices/spectrum/ScpiCommandLogger.h"
+#include "infra/LogCategories.h"
+
 #include <QButtonGroup>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QApplication>
+#include <QClipboard>
+#include <QDateTime>
+#include <QFile>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
@@ -1112,6 +1123,24 @@ QGroupBox *DevicePage::createHardwareConfigGroup()
     auto *layout = new QFormLayout(group);
     layout->setContentsMargins(10, 12, 10, 10);
 
+    hwProfileCombo_ = new QComboBox(group);
+    hwProfileCombo_->addItems(Config::HardwareConfigManager().listProfiles());
+
+    auto *loadProfileButton = new QPushButton(QStringLiteral("加载 Profile"), group);
+    auto *saveProfileButton = new QPushButton(QStringLiteral("保存为 Profile"), group);
+    auto *validateProfileButton = new QPushButton(QStringLiteral("校验 Profile"), group);
+    auto *openConfigDirButton = new QPushButton(QStringLiteral("打开配置目录"), group);
+
+    layout->addRow(QStringLiteral("Profile"), hwProfileCombo_);
+    auto *profileRow = new QHBoxLayout;
+    profileRow->addWidget(loadProfileButton);
+    profileRow->addWidget(saveProfileButton);
+    layout->addRow(profileRow);
+    auto *profileRow2 = new QHBoxLayout;
+    profileRow2->addWidget(validateProfileButton);
+    profileRow2->addWidget(openConfigDirButton);
+    layout->addRow(profileRow2);
+
     hwMotionEnabledCheck_ = new QCheckBox(QStringLiteral("启用运动平台"), group);
     hwMotionPortEdit_ = new QLineEdit(group);
     hwSpectrumEnabledCheck_ = new QCheckBox(QStringLiteral("启用频谱仪"), group);
@@ -1154,6 +1183,43 @@ QGroupBox *DevicePage::createHardwareConfigGroup()
 
     connect(loadButton, &QPushButton::clicked, this, &DevicePage::loadHardwareConfigToUi);
     connect(saveButton, &QPushButton::clicked, this, &DevicePage::saveHardwareConfigFromUi);
+    connect(loadProfileButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_ || !hwProfileCombo_) {
+            return;
+        }
+        const QString profile = hwProfileCombo_->currentText();
+        if (deviceManager_->loadHardwareProfile(profile)) {
+            loadHardwareConfigToUi();
+            appendLog(QStringLiteral("Profile 已加载: %1").arg(profile));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(saveProfileButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_ || !hwProfileCombo_) {
+            return;
+        }
+        saveHardwareConfigFromUi();
+        const QString profile = hwProfileCombo_->currentText();
+        if (deviceManager_->saveHardwareProfile(profile)) {
+            appendLog(QStringLiteral("Profile 已保存: %1").arg(profile));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(validateProfileButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_) {
+            return;
+        }
+        QStringList errors;
+        QStringList warnings;
+        Config::HardwareConfigManager::validateProfile(deviceManager_->hardwareConfig(), &errors, &warnings);
+        appendLog(QStringLiteral("Profile 校验 errors=%1 warnings=%2")
+                      .arg(errors.join(QStringLiteral("; ")), warnings.join(QStringLiteral("; "))));
+    });
+    connect(openConfigDirButton, &QPushButton::clicked, this, []() {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(Config::defaultProfilesDirectory()));
+    });
 
     loadHardwareConfigToUi();
     return group;
@@ -1174,6 +1240,12 @@ QGroupBox *DevicePage::createDeviceTestGroup()
     auto *connectProbeButton = new QPushButton(QStringLiteral("连接探头"), group);
     auto *setHxButton = new QPushButton(QStringLiteral("Hx"), group);
     auto *setHyButton = new QPushButton(QStringLiteral("Hy"), group);
+    auto *bringupButton = new QPushButton(QStringLiteral("Run Bring-up Test"), group);
+    auto *exportBringupButton = new QPushButton(QStringLiteral("Export Bring-up Report"), group);
+    auto *openScpiLogButton = new QPushButton(QStringLiteral("打开 SCPI 日志"), group);
+    auto *clearScpiErrorsButton = new QPushButton(QStringLiteral("清空 SCPI 错误"), group);
+    auto *copyIdnButton = new QPushButton(QStringLiteral("复制最近 IDN"), group);
+    auto *copyErrorButton = new QPushButton(QStringLiteral("复制最近错误"), group);
 
     layout->addWidget(connectMotionButton, 0, 0);
     layout->addWidget(disconnectMotionButton, 0, 1);
@@ -1184,6 +1256,68 @@ QGroupBox *DevicePage::createDeviceTestGroup()
     layout->addWidget(connectProbeButton, 3, 0);
     layout->addWidget(setHxButton, 3, 1);
     layout->addWidget(setHyButton, 3, 2);
+    layout->addWidget(bringupButton, 4, 0);
+    layout->addWidget(exportBringupButton, 4, 1);
+    layout->addWidget(openScpiLogButton, 5, 0);
+    layout->addWidget(clearScpiErrorsButton, 5, 1);
+    layout->addWidget(copyIdnButton, 6, 0);
+    layout->addWidget(copyErrorButton, 6, 1);
+
+    auto runBringup = [this]() {
+        if (!deviceManager_) {
+            return Devices::Spectrum::DeviceBringupResult{};
+        }
+        const QString type = deviceManager_->hardwareConfig().spectrum.type;
+        return Devices::Spectrum::SpectrumBringupRunner::runMockBringup(type);
+    };
+
+    connect(bringupButton, &QPushButton::clicked, this, [this, runBringup]() {
+        const auto result = runBringup();
+        appendLog(QStringLiteral("Bring-up: connected=%1 idn=%2 sweep=%3 trace=%4 points=%5")
+                      .arg(result.connected)
+                      .arg(result.idnOk)
+                      .arg(result.sweepOk)
+                      .arg(result.traceOk)
+                      .arg(result.tracePointCount));
+        if (!result.errors.isEmpty()) {
+            appendLog(result.errors.join(QStringLiteral("; ")));
+        }
+        lastBringupResult_ = result;
+    });
+    connect(exportBringupButton, &QPushButton::clicked, this, [this, runBringup]() {
+        if (!lastBringupResult_.overallOk() && lastBringupResult_.steps.isEmpty()) {
+            lastBringupResult_ = runBringup();
+        }
+        const QString logsDir = NFSScanner::Infra::logsRootDirectory();
+        QDir().mkpath(logsDir);
+        const QString path = QDir(logsDir).filePath(
+            QStringLiteral("hardware_bringup_%1.md").arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"))));
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            file.write(lastBringupResult_.markdownReport().toUtf8());
+            appendLog(QStringLiteral("Bring-up 报告已导出: %1").arg(path));
+        } else {
+            appendLog(QStringLiteral("Bring-up 报告导出失败。"));
+        }
+    });
+    connect(openScpiLogButton, &QPushButton::clicked, this, []() {
+        const QString path = NFSScanner::Infra::logFilePath(NFSScanner::Infra::LogCategory::ScpiRaw);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
+    connect(clearScpiErrorsButton, &QPushButton::clicked, this, [this]() {
+        Devices::Spectrum::ScpiCommandLogger::clearRecentErrors();
+        appendLog(QStringLiteral("SCPI 最近错误已清空。"));
+    });
+    connect(copyIdnButton, &QPushButton::clicked, this, [this]() {
+        const QString idn = Devices::Spectrum::ScpiCommandLogger::lastIdnResponse();
+        QApplication::clipboard()->setText(idn);
+        appendLog(QStringLiteral("已复制 IDN: %1").arg(idn));
+    });
+    connect(copyErrorButton, &QPushButton::clicked, this, [this]() {
+        const QString err = Devices::Spectrum::ScpiCommandLogger::lastErrorMessage();
+        QApplication::clipboard()->setText(err);
+        appendLog(QStringLiteral("已复制错误: %1").arg(err));
+    });
 
     connect(connectMotionButton, &QPushButton::clicked, this, [this]() {
         if (!deviceManager_) {

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.11.0
+    VERSION 0.12.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX C
 )
@@ -40,6 +40,8 @@ set(CORE_SOURCES
     src/core/AlignmentManager.cpp
     src/core/PreScanChecklist.h
     src/core/PreScanChecklist.cpp
+    src/core/ScanHardware.h
+    src/core/ScanHardware.cpp
 
     src/config/HardwareConfig.h
     src/config/HardwareConfig.cpp
@@ -57,12 +59,22 @@ set(CORE_SOURCES
 
     src/diagnostics/HardwareDiagnostics.h
     src/diagnostics/HardwareDiagnostics.cpp
+    src/diagnostics/HardwareSnapshotWriter.h
+    src/diagnostics/HardwareSnapshotWriter.cpp
+    src/diagnostics/DiagnosticPackageExporter.h
+    src/diagnostics/DiagnosticPackageExporter.cpp
 
     src/devices/motion/IMotionController.h
     src/devices/motion/MockMotionController.h
     src/devices/motion/MockMotionController.cpp
     src/devices/motion/SerialMotionController.h
     src/devices/motion/SerialMotionController.cpp
+    src/devices/motion/GrblStatus.h
+    src/devices/motion/GrblStatus.cpp
+    src/devices/motion/GrblCommandBuilder.h
+    src/devices/motion/GrblCommandBuilder.cpp
+    src/devices/motion/GrblResponseParser.h
+    src/devices/motion/GrblResponseParser.cpp
 
     src/devices/camera/ICamera.h
     src/devices/camera/MockCamera.h
@@ -93,6 +105,12 @@ set(CORE_SOURCES
     src/devices/spectrum/SpectrumAnalyzerFactory.cpp
     src/devices/spectrum/SpectrumDeviceHost.h
     src/devices/spectrum/SpectrumDeviceHost.cpp
+    src/devices/spectrum/ScpiCommandProfile.h
+    src/devices/spectrum/ScpiCommandProfile.cpp
+    src/devices/spectrum/ScpiCommandLogger.h
+    src/devices/spectrum/ScpiCommandLogger.cpp
+    src/devices/spectrum/DeviceBringupResult.h
+    src/devices/spectrum/DeviceBringupResult.cpp
 
     src/project/Project.h
     src/project/Project.cpp
@@ -125,6 +143,8 @@ set(CORE_SOURCES
 
     src/infra/Logger.h
     src/infra/Logger.cpp
+    src/infra/LogCategories.h
+    src/infra/LogCategories.cpp
 )
 
 set(ED25519_C_SOURCES
@@ -162,6 +182,8 @@ set(UI_SOURCES
     src/ui/AnalysisController.cpp
     src/ui/DeviceStatusBar.h
     src/ui/DeviceStatusBar.cpp
+    src/ui/HardwareDebugDialog.h
+    src/ui/HardwareDebugDialog.cpp
 )
 
 add_executable(NFSScanner

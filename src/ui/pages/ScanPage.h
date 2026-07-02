@@ -13,6 +13,7 @@
 class QCheckBox;
 class QComboBox;
 class QGroupBox;
+class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
@@ -89,6 +90,7 @@ public:
     void setCurrentPositionAsScanPoint(bool startPoint);
     void updateScanProgress(int current, int total);
     void updateActionButtons();
+    void setHardwareModeText(const QString &text);
     QVector<MockScanPoint> buildMockScanPoints() const;
 
 public slots:
@@ -154,6 +156,7 @@ private:
     QCheckBox *snakeModeCheck_ = nullptr;
     QSpinBox *dwellTimeSpinBox_ = nullptr;
     QProgressBar *scanProgressBar_ = nullptr;
+    QLabel *hardwareModeLabel_ = nullptr;
 };
 
 } // namespace NFSScanner::UI

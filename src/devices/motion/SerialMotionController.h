@@ -2,6 +2,8 @@
 
 #include "devices/motion/IMotionController.h"
 
+#include "devices/motion/GrblStatus.h"
+
 #include <QByteArray>
 #include <QSerialPort>
 #include <QString>
@@ -9,13 +11,6 @@
 #include <optional>
 
 namespace NFSScanner::Devices::Motion {
-
-struct MotionPosition
-{
-    double x = 0.0;
-    double y = 0.0;
-    double z = 0.0;
-};
 
 class SerialMotionController final : public IMotionController
 {
@@ -36,9 +31,14 @@ public:
     bool isOpen() const;
 
     bool home();
+    bool unlock();
     bool queryPosition();
     bool readVersion();
     bool readHelp();
+    bool feedHold();
+    bool softReset();
+    bool waitUntilIdle(int timeoutMs = 30000);
+    bool sendRawCommand(const QString &command);
 
     bool moveAbs(std::optional<double> x,
                  std::optional<double> y,
@@ -48,6 +48,8 @@ public:
 
     MotionPosition currentPosition() const;
     QString currentStatus() const;
+    GrblState grblState() const;
+    QString lastMotionError() const;
 
 signals:
     void connectedChanged(bool connected);
@@ -68,6 +70,8 @@ private:
     QByteArray readBuffer_;
     MotionPosition position_;
     QString currentStatus_ = QStringLiteral("未连接");
+    GrblState grblState_ = GrblState::Unknown;
+    QString lastMotionError_;
     QString lastPortName_;
     int lastBaudRate_ = 115200;
 };

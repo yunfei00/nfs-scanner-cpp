@@ -1,0 +1,30 @@
+{
+  "motion": {
+    "enabled": false,
+    "type": "grbl",
+    "port": "COM3",
+    "baudrate": 115200,
+    "timeout_ms": 3000,
+    "feed_default": 1000,
+    "limits": { "x_min": 0, "x_max": 200, "y_min": -300, "y_max": 0, "z_min": 0, "z_max": 10 },
+    "home_on_connect": false,
+    "poll_interval_ms": 500
+  },
+  "spectrum": {
+    "enabled": true,
+    "type": "zna67",
+    "address": "192.168.0.10",
+    "port": 5025,
+    "timeout_ms": 8000,
+    "retry_count": 2,
+    "start_freq_hz": 1000000000,
+    "stop_freq_hz": 3000000000,
+    "points": 201,
+    "rbw_hz": 1000,
+    "vbw_hz": 1000,
+    "sweep_time_s": 0.1,
+    "trace": "Trc1_S21"
+  },
+  "camera": { "enabled": false, "type": "mock", "device_index": 0, "save_dir": "images", "timeout_ms": 3000 },
+  "probe": { "enabled": false, "type": "mock", "orientation": "Hx", "switch_delay_ms": 500 }
+}

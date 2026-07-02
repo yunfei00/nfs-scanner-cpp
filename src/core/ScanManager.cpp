@@ -1,7 +1,10 @@
 #include "core/ScanManager.h"
 
+#include "core/ScanHardware.h"
 #include "core/ScanPathPlanner.h"
 #include "core/ScanResult.h"
+#include "core/DeviceManager.h"
+#include "diagnostics/HardwareSnapshotWriter.h"
 #include "devices/motion/IMotionController.h"
 #include "devices/motion/SerialMotionController.h"
 
@@ -93,6 +96,17 @@ void ScanManager::startScan(const ScanConfig &config)
     }
 
     config_ = config;
+    const bool spectrumMock = !analyzer_ || !analyzer_->isConnected();
+    config_.hardwareMode = inferHardwareMode(!useRealMotion_, spectrumMock);
+    config_.hardwareConfigProfile = hardwareProfileName_;
+    if (deviceManager_) {
+        const Config::HardwareConfig hw = deviceManager_->hardwareConfig();
+        config_.motionType = useRealMotion_ ? hw.motion.type : QStringLiteral("mock");
+        config_.spectrumType = spectrumMock ? QStringLiteral("mock") : hw.spectrum.type;
+        config_.cameraType = hw.camera.type;
+        config_.errorStrategy = acquisitionOptions_.stopOnError ? ScanErrorStrategy::StopOnError
+                                                                  : ScanErrorStrategy::SkipPoint;
+    }
     points_ = std::move(points);
     currentIndex_ = 0;
     acquisitionInProgress_ = false;
@@ -134,6 +148,13 @@ void ScanManager::startScan(const ScanConfig &config)
         setState(ScanState::Error);
         emit scanError(message);
         return;
+    }
+
+    if (deviceManager_) {
+        Diagnostics::HardwareSnapshotWriter::writeHardwareConfigSnapshot(storage_.taskDir(),
+                                                                         deviceManager_->hardwareConfig(),
+                                                                         hardwareProfileName_);
+        Diagnostics::HardwareSnapshotWriter::writeDeviceStatusSnapshot(storage_.taskDir(), deviceManager_);
     }
 
     setupAcquisitionThread();
@@ -267,6 +288,16 @@ void ScanManager::setUseRealMotion(bool enabled)
     useRealMotion_ = enabled;
 }
 
+void ScanManager::setDeviceManager(DeviceManager *deviceManager)
+{
+    deviceManager_ = deviceManager;
+}
+
+void ScanManager::setHardwareProfileName(const QString &profileName)
+{
+    hardwareProfileName_ = profileName;
+}
+
 ScanState ScanManager::state() const
 {
     return state_;
@@ -312,6 +343,8 @@ void ScanManager::beginPointMotion(const ScanPoint &point)
     }
 
     activePoint_ = point;
+    currentPointTiming_ = Storage::PointTimingRecord{};
+    currentPointTiming_.moveStart = QDateTime::currentDateTime();
     emit logMessage(QStringLiteral("移动到扫描点 %1/%2：X=%3 Y=%4 Z=%5")
                         .arg(point.index)
                         .arg(points_.size())
@@ -363,6 +396,8 @@ void ScanManager::pollMotion()
     if (motionTargetReached(activePoint_)) {
         motionPollTimer_.stop();
         motionInProgress_ = false;
+        currentPointTiming_.moveEnd = QDateTime::currentDateTime();
+        currentPointTiming_.motionStatus = motionStatus_;
         emit logMessage(QStringLiteral("运动到位：X=%1 Y=%2 Z=%3")
                             .arg(motionCurrentX_, 0, 'f', 3)
                             .arg(motionCurrentY_, 0, 'f', 3)
@@ -427,6 +462,7 @@ void ScanManager::requestAcquisition(const ScanPoint &point)
         return;
     }
 
+    currentPointTiming_.acquisitionStart = QDateTime::currentDateTime();
     Spectrum::SpectrumAcquisitionRequest request;
     request.pointIndex = point.index;
     request.x = point.x;
@@ -489,7 +525,11 @@ void ScanManager::onAcquisitionFinished(const Spectrum::SpectrumAcquisitionResul
     scanResult.values = result.trace.values;
     scanResult.trace = result.trace;
 
-    if (!storage_.appendPoint(point, scanResult.timestamp) || !storage_.appendTrace(scanResult)) {
+    currentPointTiming_.acquisitionEnd = QDateTime::currentDateTime();
+    currentPointTiming_.spectrumStatus = result.ok ? QStringLiteral("ok") : QStringLiteral("fail");
+    currentPointTiming_.retryCount = result.retryCount > 0 ? result.retryCount : acquisitionOptions_.retryCount;
+
+    if (!storage_.appendPoint(point, scanResult.timestamp, currentPointTiming_) || !storage_.appendTrace(scanResult)) {
         timer_.stop();
         storage_.finishTask();
         setState(ScanState::Error);

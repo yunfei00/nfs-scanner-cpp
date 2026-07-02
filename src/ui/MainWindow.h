@@ -75,6 +75,8 @@ private:
     void exportCurrentReport(const QString &format = QStringLiteral("html"));
     void showAboutDialog();
     void showDiagnosticsDialog();
+    void showHardwareDebugDialog();
+    void exportDiagnosticPackage();
     void updateProjectStatusDisplay();
 
     QGroupBox *createLogGroup();

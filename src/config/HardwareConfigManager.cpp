@@ -95,4 +95,90 @@ bool HardwareConfigManager::save(const QString &path) const
     return true;
 }
 
+QString HardwareConfigManager::profileFilePath(const QString &profileName) const
+{
+    QString name = profileName.trimmed();
+    if (name.isEmpty()) {
+        return {};
+    }
+    if (!name.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive)) {
+        name.append(QStringLiteral(".json"));
+    }
+    return QDir(defaultProfilesDirectory()).filePath(name);
+}
+
+QStringList HardwareConfigManager::listProfiles() const
+{
+    QDir dir(defaultProfilesDirectory());
+    if (!dir.exists()) {
+        return {};
+    }
+
+    QStringList names;
+    const QStringList files = dir.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    for (const QString &file : files) {
+        names.append(QFileInfo(file).completeBaseName());
+    }
+    return names;
+}
+
+bool HardwareConfigManager::loadProfile(const QString &profileName)
+{
+    lastError_.clear();
+    const QString path = profileFilePath(profileName);
+    if (path.isEmpty() || !QFile::exists(path)) {
+        setError(QStringLiteral("Profile 不存在: %1").arg(profileName));
+        return false;
+    }
+
+    if (!load(path)) {
+        return false;
+    }
+    currentProfileName_ = QFileInfo(path).completeBaseName();
+    return true;
+}
+
+bool HardwareConfigManager::saveProfile(const QString &profileName)
+{
+    const QString path = profileFilePath(profileName);
+    if (path.isEmpty()) {
+        setError(QStringLiteral("Profile 名称无效。"));
+        return false;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    if (!save(path)) {
+        return false;
+    }
+    currentProfileName_ = QFileInfo(path).completeBaseName();
+    return true;
+}
+
+bool HardwareConfigManager::validateProfile(const HardwareConfig &config,
+                                            QStringList *errors,
+                                            QStringList *warnings)
+{
+    QStringList localErrors;
+    QStringList localWarnings;
+    QStringList *errorTarget = errors ? errors : &localErrors;
+    QStringList *warningTarget = warnings ? warnings : &localWarnings;
+
+    if (!config.validate(errorTarget)) {
+        return false;
+    }
+
+    if (config.camera.type.contains(QStringLiteral("usb"), Qt::CaseInsensitive)
+        || config.camera.type.contains(QStringLiteral("industrial"), Qt::CaseInsensitive)) {
+        warningTarget->append(QStringLiteral("camera.type 为 Stub，需后续 SDK/OpenCV 接入。"));
+    }
+    if (config.probe.type.compare(QStringLiteral("serial"), Qt::CaseInsensitive) == 0
+        || config.probe.type.compare(QStringLiteral("sdk"), Qt::CaseInsensitive) == 0) {
+        warningTarget->append(QStringLiteral("probe.type 为 Stub，需现场确认接线。"));
+    }
+    if (config.motion.enabled && config.motion.homeOnConnect) {
+        warningTarget->append(QStringLiteral("motion.home_on_connect=true，连接后可能自动 Home。"));
+    }
+
+    return errorTarget->isEmpty();
+}
+
 } // namespace NFSScanner::Config

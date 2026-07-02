@@ -10,13 +10,26 @@
 
 namespace NFSScanner::Storage {
 
+struct PointTimingRecord
+{
+    QDateTime moveStart;
+    QDateTime moveEnd;
+    QDateTime acquisitionStart;
+    QDateTime acquisitionEnd;
+    QString motionStatus;
+    QString spectrumStatus;
+    int retryCount = 0;
+};
+
 class TaskStorage
 {
 public:
     TaskStorage() = default;
 
     bool beginTask(const Core::ScanConfig &config, int pointCount);
-    bool appendPoint(const Core::ScanPoint &point, const QDateTime &timestamp);
+    bool appendPoint(const Core::ScanPoint &point,
+                     const QDateTime &timestamp,
+                     const PointTimingRecord &timing = PointTimingRecord{});
     bool appendTrace(const Core::ScanResult &result);
     bool finishTask();
 

@@ -1,7 +1,13 @@
 #include "devices/motion/SerialMotionController.h"
 
+#include "devices/motion/GrblCommandBuilder.h"
+#include "devices/motion/GrblResponseParser.h"
+#include "infra/LogCategories.h"
+
+#include <QElapsedTimer>
 #include <QIODevice>
 #include <QStringList>
+#include <QThread>
 
 #include <cmath>
 
@@ -147,17 +153,22 @@ bool SerialMotionController::isOpen() const
 
 bool SerialMotionController::home()
 {
-    return sendCommand(QStringLiteral("$H"));
+    return sendCommand(GrblCommandBuilder::buildHome());
+}
+
+bool SerialMotionController::unlock()
+{
+    return sendCommand(GrblCommandBuilder::buildUnlock());
 }
 
 bool SerialMotionController::queryPosition()
 {
-    return sendCommand(QStringLiteral("?"));
+    return sendCommand(GrblCommandBuilder::buildQueryStatus());
 }
 
 bool SerialMotionController::readVersion()
 {
-    return sendCommand(QStringLiteral("$I"));
+    return sendCommand(GrblCommandBuilder::buildVersionQuery());
 }
 
 bool SerialMotionController::readHelp()
@@ -192,11 +203,7 @@ bool SerialMotionController::moveAbs(std::optional<double> x,
         return false;
     }
 
-    const QString command = QStringLiteral("G1X%1Y%2Z%3F%4")
-                                .arg(mmText(target.x),
-                                     mmText(target.y),
-                                     mmText(target.z),
-                                     feedText(feed));
+    const QString command = GrblCommandBuilder::buildAbsoluteMove(target, feed);
     return sendCommand(command);
 }
 
@@ -231,6 +238,58 @@ QString SerialMotionController::currentStatus() const
     return currentStatus_;
 }
 
+GrblState SerialMotionController::grblState() const
+{
+    return grblState_;
+}
+
+QString SerialMotionController::lastMotionError() const
+{
+    return lastMotionError_;
+}
+
+bool SerialMotionController::feedHold()
+{
+    return sendCommand(GrblCommandBuilder::buildFeedHold());
+}
+
+bool SerialMotionController::softReset()
+{
+    if (!serial_.isOpen()) {
+        return false;
+    }
+    const QByteArray payload = GrblCommandBuilder::buildSoftReset();
+    serial_.write(payload);
+    serial_.flush();
+    Infra::writeCategoryLog(Infra::LogCategory::GrblRaw, QStringLiteral("发送 soft reset (0x18)"));
+    return true;
+}
+
+bool SerialMotionController::waitUntilIdle(int timeoutMs)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        queryPosition();
+        QThread::msleep(static_cast<unsigned long>(std::max(50, timeoutMs / 20)));
+        if (GrblResponseParser::isIdleState(grblState_)) {
+            return true;
+        }
+        if (GrblResponseParser::isAlarmState(grblState_)) {
+            lastMotionError_ = QStringLiteral("GRBL Alarm 状态，无法继续。");
+            return false;
+        }
+    }
+    lastMotionError_ = QStringLiteral("waitUntilIdle 超时 (%1 ms)").arg(timeoutMs);
+    emit errorOccurred(lastMotionError_);
+    return false;
+}
+
+bool SerialMotionController::sendRawCommand(const QString &command)
+{
+    return sendCommand(command);
+}
+
 bool SerialMotionController::sendCommand(const QString &command)
 {
     if (!serial_.isOpen()) {
@@ -251,6 +310,7 @@ bool SerialMotionController::sendCommand(const QString &command)
     }
 
     serial_.flush();
+    Infra::writeCategoryLog(Infra::LogCategory::GrblRaw, QStringLiteral("TX: %1").arg(command));
     emit logMessage(QStringLiteral("发送命令：%1").arg(command));
     return true;
 }
@@ -297,22 +357,24 @@ void SerialMotionController::handleSerialError(QSerialPort::SerialPortError erro
 void SerialMotionController::processLine(const QString &line)
 {
     emit rawLineReceived(line);
+    Infra::writeCategoryLog(Infra::LogCategory::GrblRaw, QStringLiteral("RX: %1").arg(line));
 
-    const QString lowerLine = line.toLower();
-    if (line.startsWith(QLatin1Char('<')) && line.endsWith(QLatin1Char('>'))) {
-        parseStatusLine(line);
-        return;
-    }
-
-    if (lowerLine == QStringLiteral("ok")) {
+    const GrblParseResult parsed = GrblResponseParser::parseLine(line);
+    if (parsed.isOkResponse) {
         emit logMessage(QStringLiteral("控制器返回 ok"));
         return;
     }
 
-    if (lowerLine.startsWith(QStringLiteral("error:"))) {
+    if (parsed.isErrorResponse) {
+        lastMotionError_ = parsed.errorMessage;
         const QString message = QStringLiteral("控制器返回错误：%1").arg(line);
         emit logMessage(message);
         emit errorOccurred(message);
+        return;
+    }
+
+    if (parsed.isStatusReport) {
+        parseStatusLine(line);
         return;
     }
 
@@ -321,51 +383,25 @@ void SerialMotionController::processLine(const QString &line)
 
 bool SerialMotionController::parseStatusLine(const QString &line)
 {
-    const QString payload = line.mid(1, line.size() - 2);
-    const QStringList fields = payload.split(QLatin1Char('|'), Qt::SkipEmptyParts);
-    if (fields.isEmpty()) {
-        const QString message = QStringLiteral("返回格式解析失败：%1").arg(line);
-        emit logMessage(message);
-        emit errorOccurred(message);
+    const GrblParseResult parsed = GrblResponseParser::parseLine(line);
+    if (!parsed.isStatusReport) {
         return false;
     }
 
-    const QString status = fields.first();
-    for (const QString &field : fields) {
-        if (!field.startsWith(QStringLiteral("MPos:"))) {
-            continue;
-        }
+    grblState_ = parsed.status.state;
+    currentStatus_ = parsed.status.rawState;
 
-        const QStringList values = field.mid(5).split(QLatin1Char(','));
-        if (values.size() != 3) {
-            break;
-        }
-
-        bool xOk = false;
-        bool yOk = false;
-        bool zOk = false;
-        const double x = values.at(0).toDouble(&xOk);
-        const double y = values.at(1).toDouble(&yOk);
-        const double z = values.at(2).toDouble(&zOk);
-
-        if (!xOk || !yOk || !zOk) {
-            break;
-        }
-
-        position_ = MotionPosition{x, y, z};
-        currentStatus_ = status;
-
-        emit positionChanged(position_.x, position_.y, position_.z);
-        emit statusChanged(currentStatus_);
-        emit logMessage(QStringLiteral("控制器状态：%1，MPos %2")
-                            .arg(currentStatus_, positionSummary(position_)));
-        return true;
+    if (parsed.status.hasMachinePosition) {
+        position_ = parsed.status.machinePosition;
+    } else if (parsed.status.hasWorkPosition) {
+        position_ = parsed.status.workPosition;
     }
 
-    const QString message = QStringLiteral("返回格式解析失败：%1").arg(line);
-    emit logMessage(message);
-    emit errorOccurred(message);
-    return false;
+    emit positionChanged(position_.x, position_.y, position_.z);
+    emit statusChanged(currentStatus_);
+    emit logMessage(QStringLiteral("控制器状态：%1，Pos %2")
+                        .arg(currentStatus_, positionSummary(position_)));
+    return true;
 }
 
 bool SerialMotionController::validatePosition(const MotionPosition &position)
