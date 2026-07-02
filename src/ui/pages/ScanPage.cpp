@@ -10,6 +10,7 @@
 
 #include <QAbstractScrollArea>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -146,6 +147,11 @@ void ScanPage::setScanLaunchHandler(ScanLaunchHandler handler)
     scanLaunchHandler_ = std::move(handler);
 }
 
+void ScanPage::setPreScanHandler(PreScanHandler handler)
+{
+    preScanHandler_ = std::move(handler);
+}
+
 void ScanPage::setOnScanPageChecker(PageChecker checker)
 {
     onScanPageChecker_ = std::move(checker);
@@ -254,9 +260,12 @@ QGroupBox *ScanPage::createTestInfoGroup()
     projectNameEdit_->setPlaceholderText(QStringLiteral("请输入项目名称"));
     testNameEdit_ = new QLineEdit(group);
     testNameEdit_->setPlaceholderText(QStringLiteral("请输入测试名称"));
+    probeOrientationCombo_ = new QComboBox(group);
+    probeOrientationCombo_->addItems({QStringLiteral("Hx"), QStringLiteral("Hy")});
 
     layout->addRow(QStringLiteral("项目名称"), projectNameEdit_);
     layout->addRow(QStringLiteral("测试名称"), testNameEdit_);
+    layout->addRow(QStringLiteral("探头方向"), probeOrientationCombo_);
 
     return group;
 }
@@ -405,13 +414,19 @@ void ScanPage::startScan()
                   .arg(previewPoints.size())
                   .arg(config.snakeMode ? QStringLiteral("是") : QStringLiteral("否")));
 
-    const bool mockMode = !mockModeChecker_ || mockModeChecker_();
-    const bool useRealMotion = !mockMode;
-    if (useRealMotion && motionReadyChecker_ && !motionReadyChecker_()) {
-        const QString message = QStringLiteral("请先打开运动控制串口，或勾选模拟模式。");
-        appendLog(message);
-        QMessageBox::warning(messageBoxParent_, QStringLiteral("运动控制未连接"), message);
-        return;
+    if (preScanHandler_) {
+        if (!preScanHandler_(config, previewPoints.size(), planner.lastError())) {
+            return;
+        }
+    } else {
+        const bool mockMode = !mockModeChecker_ || mockModeChecker_();
+        const bool useRealMotion = !mockMode;
+        if (useRealMotion && motionReadyChecker_ && !motionReadyChecker_()) {
+            const QString message = QStringLiteral("请先打开运动控制串口，或勾选模拟模式。");
+            appendLog(message);
+            QMessageBox::warning(messageBoxParent_, QStringLiteral("运动控制未连接"), message);
+            return;
+        }
     }
 
     updateScanProgress(0, 1);
@@ -528,6 +543,7 @@ Core::ScanConfig ScanPage::readScanConfigFromUi() const
     config.snakeMode = !snakeModeCheck_ || snakeModeCheck_->isChecked();
     config.projectName = projectNameEdit_ ? projectNameEdit_->text().trimmed() : QString();
     config.testName = testNameEdit_ ? testNameEdit_->text().trimmed() : QString();
+    config.probeOrientation = probeOrientationCombo_ ? probeOrientationCombo_->currentText() : QStringLiteral("Hx");
 
     if (projectManager_ && projectManager_->hasOpenProject()) {
         config.outputDir = projectManager_->defaultScanOutputDir();
@@ -565,6 +581,9 @@ void ScanPage::setScanParamsLocked(bool locked)
     }
     if (testNameEdit_) {
         testNameEdit_->setEnabled(!locked);
+    }
+    if (probeOrientationCombo_) {
+        probeOrientationCombo_->setEnabled(!locked);
     }
 }
 

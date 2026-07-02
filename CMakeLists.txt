@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(NFSScannerCpp
-    VERSION 0.10.0
+    VERSION 0.11.0
     DESCRIPTION "Near-field scanning system C++/Qt6 rewrite"
     LANGUAGES CXX C
 )
@@ -38,6 +38,25 @@ set(CORE_SOURCES
     src/core/AlignmentConfig.cpp
     src/core/AlignmentManager.h
     src/core/AlignmentManager.cpp
+    src/core/PreScanChecklist.h
+    src/core/PreScanChecklist.cpp
+
+    src/config/HardwareConfig.h
+    src/config/HardwareConfig.cpp
+    src/config/HardwareConfigManager.h
+    src/config/HardwareConfigManager.cpp
+
+    src/devices/camera/CameraFactory.h
+    src/devices/camera/CameraFactory.cpp
+
+    src/devices/probe/IProbeController.h
+    src/devices/probe/MockProbeController.h
+    src/devices/probe/MockProbeController.cpp
+    src/devices/probe/ProbeControllerFactory.h
+    src/devices/probe/ProbeControllerFactory.cpp
+
+    src/diagnostics/HardwareDiagnostics.h
+    src/diagnostics/HardwareDiagnostics.cpp
 
     src/devices/motion/IMotionController.h
     src/devices/motion/MockMotionController.h

@@ -11,6 +11,7 @@
 #include <functional>
 
 class QCheckBox;
+class QComboBox;
 class QGroupBox;
 class QLineEdit;
 class QPlainTextEdit;
@@ -65,11 +66,13 @@ public:
     using StringProvider = std::function<QString()>;
     using ScanLaunchHandler = std::function<bool(NFSScanner::Core::ScanManager *, const NFSScanner::Core::ScanConfig &)>;
     using PageChecker = std::function<bool()>;
+    using PreScanHandler = std::function<bool(const NFSScanner::Core::ScanConfig &, int pointCount, const QString &plannerError)>;
 
     void setFeedProvider(FeedProvider provider);
     void setMockModeChecker(BoolProvider checker);
     void setMotionReadyChecker(BoolProvider checker);
     void setScanLaunchHandler(ScanLaunchHandler handler);
+    void setPreScanHandler(PreScanHandler handler);
     void setOnScanPageChecker(PageChecker checker);
     void setResultDirProvider(StringProvider provider);
     void setCurrentPosition(double x, double y, double z);
@@ -126,6 +129,7 @@ private:
     BoolProvider mockModeChecker_;
     BoolProvider motionReadyChecker_;
     ScanLaunchHandler scanLaunchHandler_;
+    PreScanHandler preScanHandler_;
     PageChecker onScanPageChecker_;
     StringProvider resultDirProvider_;
 
@@ -140,6 +144,7 @@ private:
     QTableWidget *scanTable_ = nullptr;
     QLineEdit *projectNameEdit_ = nullptr;
     QLineEdit *testNameEdit_ = nullptr;
+    QComboBox *probeOrientationCombo_ = nullptr;
     QLineEdit *stepXEdit_ = nullptr;
     QLineEdit *stepYEdit_ = nullptr;
     QLineEdit *stepZEdit_ = nullptr;

@@ -300,6 +300,7 @@ bool TaskStorage::writeMetaJson(const Core::ScanConfig &config, int pointCount)
     object.insert(QStringLiteral("project_name"), config.projectName);
     object.insert(QStringLiteral("test_name"), config.testName);
     object.insert(QStringLiteral("point_count"), pointCount);
+    object.insert(QStringLiteral("probe_orientation"), config.probeOrientation);
     object.insert(QStringLiteral("task_dir"), taskDir_);
 
     const QString path = QDir(taskDir_).filePath(QStringLiteral("meta.json"));
@@ -322,6 +323,7 @@ bool TaskStorage::writeScanConfigJson(const Core::ScanConfig &config)
     object.insert(QStringLiteral("feed"), config.feed);
     object.insert(QStringLiteral("dwellMs"), config.dwellMs);
     object.insert(QStringLiteral("snakeMode"), config.snakeMode);
+    object.insert(QStringLiteral("probe_orientation"), config.probeOrientation);
     object.insert(QStringLiteral("projectName"), config.projectName);
     object.insert(QStringLiteral("testName"), config.testName);
     object.insert(QStringLiteral("outputDir"), config.outputDir);

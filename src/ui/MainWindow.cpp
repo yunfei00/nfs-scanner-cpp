@@ -2,8 +2,10 @@
 
 #include "app/AppVersion.h"
 #include "core/AlignmentManager.h"
+#include "core/PreScanChecklist.h"
 #include "core/DeviceManager.h"
 #include "core/ScanManager.h"
+#include "diagnostics/HardwareDiagnostics.h"
 #include "license/LicenseManager.h"
 #include "project/ProjectManager.h"
 #include "report/ReportData.h"
@@ -538,16 +540,30 @@ void MainWindow::showAboutDialog()
 
 void MainWindow::showDiagnosticsDialog()
 {
-    const QString text = QStringLiteral(
-        "构建版本：%1 v%2\nQt：%3\nMachine ID：%4\n授权：%5\nWorkspace：%6\n数据格式：%7")
-                             .arg(QStringLiteral(APP_NAME),
-                                  QStringLiteral(APP_VERSION),
-                                  QStringLiteral(QT_VERSION_STR),
-                                  licenseManager_ ? licenseManager_->machineId() : QStringLiteral("-"),
-                                  licenseManager_ ? License::licenseStatusText(licenseManager_->status()) : QStringLiteral("Demo"),
-                                  projectManager_ ? projectManager_->workspaceRoot() : QStringLiteral("-"),
-                                  QStringLiteral(DATA_FORMAT_VERSION));
-    QMessageBox::information(this, QStringLiteral("诊断信息"), text);
+    Diagnostics::HardwareDiagnosticsOptions options;
+    options.projectManager = projectManager_;
+    options.licenseManager = licenseManager_;
+    options.deviceManager = deviceManager_;
+    if (projectManager_ && projectManager_->hasOpenProject()) {
+        options.projectPath = projectManager_->currentProject().rootPath;
+    }
+
+    const QString summary = Diagnostics::HardwareDiagnostics::buildMarkdownSummary(options);
+    QString exportPath;
+    const bool exported = Diagnostics::HardwareDiagnostics::exportMarkdownReport(options, &exportPath);
+
+    QString text = summary;
+    if (exported) {
+        text.append(QStringLiteral("\n\n已导出: %1").arg(exportPath));
+        appendLog(QStringLiteral("设备诊断已导出: %1").arg(exportPath));
+    }
+
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("设备诊断"));
+    box.setText(QStringLiteral("诊断摘要已生成，详情见导出文件。"));
+    box.setDetailedText(text);
+    box.setIcon(QMessageBox::Information);
+    box.exec();
 }
 
 void MainWindow::switchToPage(AppPage page)
@@ -694,6 +710,49 @@ void MainWindow::setupScanPageBindings()
     scanPage_->setResultDirProvider([this]() {
         return analysisPage_ ? analysisPage_->resultDir() : QString();
     });
+    scanPage_->setPreScanHandler([this](const Core::ScanConfig &config, int pointCount, const QString &plannerError) {
+        Core::PreScanChecklistContext context;
+        context.scanConfig = config;
+        context.deviceManager = deviceManager_;
+        context.projectExists = projectManager_ && projectManager_->hasOpenProject();
+        context.mockMode = devicePage_ && devicePage_->isMockMode();
+        context.pointCount = pointCount;
+        context.plannerError = plannerError;
+        context.hasAlignment = alignmentManager_.config().enabled;
+
+        if (licenseManager_) {
+            const auto status = licenseManager_->status();
+            context.licenseDemo = status == License::LicenseStatus::Demo;
+            context.licenseValid = status == License::LicenseStatus::Valid
+                || status == License::LicenseStatus::Demo;
+        }
+
+        const QString outputDir = config.outputDir.trimmed().isEmpty()
+            ? QStringLiteral("data/scans")
+            : config.outputDir.trimmed();
+        QDir dir(outputDir);
+        context.outputDirWritable = dir.exists() ? QFileInfo(outputDir).isWritable() : dir.mkpath(QStringLiteral("."));
+
+        const Core::PreScanChecklistResult checklist = Core::PreScanChecklist::evaluate(context);
+        appendLog(QStringLiteral("扫描前检查完成。"));
+        appendLog(checklist.summaryText());
+
+        if (checklist.hasErrors()) {
+            QMessageBox::critical(this,
+                                  QStringLiteral("扫描前检查未通过"),
+                                  checklist.summaryText());
+            return false;
+        }
+        if (checklist.hasWarnings()) {
+            const auto answer = QMessageBox::warning(this,
+                                                     QStringLiteral("扫描前检查警告"),
+                                                     checklist.summaryText() + QStringLiteral("\n\n是否继续扫描？"),
+                                                     QMessageBox::Yes | QMessageBox::No,
+                                                     QMessageBox::No);
+            return answer == QMessageBox::Yes;
+        }
+        return true;
+    });
     scanPage_->setScanLaunchHandler([this](Core::ScanManager *manager, const Core::ScanConfig &config) {
         remainingText_ = QStringLiteral("--");
         estimatedFinishText_ = QStringLiteral("--");
@@ -751,7 +810,7 @@ void MainWindow::setupScanPageBindings()
                 return;
             }
             if (!deviceManager_->camera() || !deviceManager_->camera()->isConnected()) {
-                deviceManager_->connectCamera();
+                deviceManager_->connectCamera(false);
             }
             if (!deviceManager_->camera()) {
                 appendLog(QStringLiteral("Mock 相机不可用。"));

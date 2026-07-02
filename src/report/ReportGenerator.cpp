@@ -46,6 +46,7 @@ bool ReportGenerator::exportMarkdown(const ReportData &data, const QString &outp
     out << QStringLiteral("- 扫描目录：%1\n").arg(data.scanTaskDir);
     out << QStringLiteral("- 时间：%1\n").arg(data.scanTime.toString(Qt::ISODate));
     out << QStringLiteral("- Trace：%1\n").arg(data.traceId);
+    out << QStringLiteral("- 探头方向：%1\n").arg(data.probeOrientation.isEmpty() ? QStringLiteral("Hx") : data.probeOrientation);
     out << QStringLiteral("- LUT：%1\n").arg(data.lutName);
     out << QStringLiteral("- 范围：%1 ~ %2\n").arg(data.vmin).arg(data.vmax);
     out << QStringLiteral("\n## 备注\n\n%1\n").arg(data.notes);

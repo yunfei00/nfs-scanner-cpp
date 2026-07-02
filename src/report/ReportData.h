@@ -21,6 +21,7 @@ struct ReportData
     double vmin = 0.0;
     double vmax = 1.0;
     QString notes;
+    QString probeOrientation;
     QImage heatmapImage;
     QImage screenshotImage;
 };

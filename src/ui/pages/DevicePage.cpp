@@ -1,8 +1,10 @@
 #include "ui/pages/DevicePage.h"
 
+#include "config/HardwareConfig.h"
 #include "core/DeviceManager.h"
 #include "core/ScanManager.h"
-#include "devices/camera/ICamera.h"
+#include "devices/camera/CameraFactory.h"
+#include "devices/probe/IProbeController.h"
 #include "devices/motion/IMotionController.h"
 #include "devices/motion/SerialMotionController.h"
 #include "devices/spectrum/ISpectrumAnalyzer.h"
@@ -275,6 +277,7 @@ void DevicePage::buildContentHost()
     hostLayout->addWidget(createSerialGroup());
     hostLayout->addWidget(createMotionControlGroup());
     hostLayout->addWidget(createMotionCommandGroup());
+    hostLayout->addWidget(createDeviceTestGroup());
     hostLayout->addStretch(1);
 }
 
@@ -285,6 +288,7 @@ QWidget *DevicePage::buildParamPanel()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
     layout->addWidget(createInstrumentGroup());
+    layout->addWidget(createHardwareConfigGroup());
     return panel;
 }
 
@@ -1100,6 +1104,257 @@ double DevicePage::readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) 
         factor = 1e3;
     }
     return ok ? value * factor : 0.0;
+}
+
+QGroupBox *DevicePage::createHardwareConfigGroup()
+{
+    auto *group = new QGroupBox(QStringLiteral("硬件配置 (hardware_config.json)"), paramPanel_);
+    auto *layout = new QFormLayout(group);
+    layout->setContentsMargins(10, 12, 10, 10);
+
+    hwMotionEnabledCheck_ = new QCheckBox(QStringLiteral("启用运动平台"), group);
+    hwMotionPortEdit_ = new QLineEdit(group);
+    hwSpectrumEnabledCheck_ = new QCheckBox(QStringLiteral("启用频谱仪"), group);
+    hwSpectrumTypeCombo_ = new QComboBox(group);
+    hwSpectrumTypeCombo_->addItems({QStringLiteral("mock"),
+                                    QStringLiteral("zna67"),
+                                    QStringLiteral("fsw"),
+                                    QStringLiteral("n9020a"),
+                                    QStringLiteral("generic")});
+    hwSpectrumHostEdit_ = new QLineEdit(group);
+    hwSpectrumPortEdit_ = new QLineEdit(group);
+    hwCameraEnabledCheck_ = new QCheckBox(QStringLiteral("启用相机"), group);
+    hwCameraTypeCombo_ = new QComboBox(group);
+    hwCameraTypeCombo_->addItems({QStringLiteral("mock"), QStringLiteral("usb"), QStringLiteral("industrial")});
+    hwProbeEnabledCheck_ = new QCheckBox(QStringLiteral("启用探头"), group);
+    hwProbeTypeCombo_ = new QComboBox(group);
+    hwProbeTypeCombo_->addItems({QStringLiteral("mock"), QStringLiteral("serial"), QStringLiteral("sdk")});
+    hwProbeOrientationCombo_ = new QComboBox(group);
+    hwProbeOrientationCombo_->addItems({QStringLiteral("Hx"), QStringLiteral("Hy")});
+
+    auto *loadButton = new QPushButton(QStringLiteral("加载配置"), group);
+    auto *saveButton = new QPushButton(QStringLiteral("保存配置"), group);
+
+    layout->addRow(hwMotionEnabledCheck_);
+    layout->addRow(QStringLiteral("运动串口"), hwMotionPortEdit_);
+    layout->addRow(hwSpectrumEnabledCheck_);
+    layout->addRow(QStringLiteral("频谱类型"), hwSpectrumTypeCombo_);
+    layout->addRow(QStringLiteral("频谱地址"), hwSpectrumHostEdit_);
+    layout->addRow(QStringLiteral("频谱端口"), hwSpectrumPortEdit_);
+    layout->addRow(hwCameraEnabledCheck_);
+    layout->addRow(QStringLiteral("相机类型"), hwCameraTypeCombo_);
+    layout->addRow(hwProbeEnabledCheck_);
+    layout->addRow(QStringLiteral("探头类型"), hwProbeTypeCombo_);
+    layout->addRow(QStringLiteral("默认方向"), hwProbeOrientationCombo_);
+
+    auto *buttonRow = new QHBoxLayout;
+    buttonRow->addWidget(loadButton);
+    buttonRow->addWidget(saveButton);
+    layout->addRow(buttonRow);
+
+    connect(loadButton, &QPushButton::clicked, this, &DevicePage::loadHardwareConfigToUi);
+    connect(saveButton, &QPushButton::clicked, this, &DevicePage::saveHardwareConfigFromUi);
+
+    loadHardwareConfigToUi();
+    return group;
+}
+
+QGroupBox *DevicePage::createDeviceTestGroup()
+{
+    auto *group = new QGroupBox(QStringLiteral("设备单项测试"), contentHost_);
+    auto *layout = new QGridLayout(group);
+    layout->setContentsMargins(10, 12, 10, 10);
+
+    auto *connectMotionButton = new QPushButton(QStringLiteral("连接运动平台"), group);
+    auto *disconnectMotionButton = new QPushButton(QStringLiteral("断开运动平台"), group);
+    auto *connectSpectrumButton = new QPushButton(QStringLiteral("连接频谱仪"), group);
+    auto *disconnectSpectrumButton = new QPushButton(QStringLiteral("断开频谱仪"), group);
+    auto *connectCameraButton = new QPushButton(QStringLiteral("连接相机"), group);
+    auto *captureCameraButton = new QPushButton(QStringLiteral("拍照"), group);
+    auto *connectProbeButton = new QPushButton(QStringLiteral("连接探头"), group);
+    auto *setHxButton = new QPushButton(QStringLiteral("Hx"), group);
+    auto *setHyButton = new QPushButton(QStringLiteral("Hy"), group);
+
+    layout->addWidget(connectMotionButton, 0, 0);
+    layout->addWidget(disconnectMotionButton, 0, 1);
+    layout->addWidget(connectSpectrumButton, 1, 0);
+    layout->addWidget(disconnectSpectrumButton, 1, 1);
+    layout->addWidget(connectCameraButton, 2, 0);
+    layout->addWidget(captureCameraButton, 2, 1);
+    layout->addWidget(connectProbeButton, 3, 0);
+    layout->addWidget(setHxButton, 3, 1);
+    layout->addWidget(setHyButton, 3, 2);
+
+    connect(connectMotionButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_) {
+            return;
+        }
+        saveHardwareConfigFromUi();
+        if (deviceManager_->connectMotion()) {
+            appendLog(QStringLiteral("运动平台连接成功。"));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(disconnectMotionButton, &QPushButton::clicked, this, [this]() {
+        if (deviceManager_) {
+            deviceManager_->disconnectMotion();
+        }
+    });
+    connect(connectSpectrumButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_) {
+            return;
+        }
+        saveHardwareConfigFromUi();
+        if (deviceManager_->connectSpectrum()) {
+            appendLog(QStringLiteral("频谱仪连接成功。"));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(disconnectSpectrumButton, &QPushButton::clicked, this, [this]() {
+        if (deviceManager_) {
+            deviceManager_->disconnectSpectrum();
+        }
+    });
+    connect(connectCameraButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_) {
+            return;
+        }
+        saveHardwareConfigFromUi();
+        if (deviceManager_->connectCamera(false)) {
+            appendLog(QStringLiteral("相机连接成功。"));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(captureCameraButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_ || !deviceManager_->camera()) {
+            appendLog(QStringLiteral("相机未连接。"));
+            return;
+        }
+        const QImage frame = deviceManager_->camera()->captureFrame();
+        QString savedPath;
+        const QString saveDir = deviceManager_->hardwareConfig().camera.saveDir;
+        if (Devices::Camera::saveCameraImage(frame, saveDir, &savedPath)) {
+            appendLog(QStringLiteral("图片已保存: %1").arg(savedPath));
+        } else {
+            appendLog(QStringLiteral("图片保存失败。"));
+        }
+    });
+    connect(connectProbeButton, &QPushButton::clicked, this, [this]() {
+        if (!deviceManager_) {
+            return;
+        }
+        saveHardwareConfigFromUi();
+        if (deviceManager_->connectProbe()) {
+            appendLog(QStringLiteral("探头控制器连接成功。"));
+        } else {
+            appendLog(deviceManager_->lastError());
+        }
+    });
+    connect(setHxButton, &QPushButton::clicked, this, [this]() {
+        if (deviceManager_ && deviceManager_->probeController()) {
+            deviceManager_->probeController()->setOrientation(Devices::Probe::ProbeOrientation::Hx);
+        }
+    });
+    connect(setHyButton, &QPushButton::clicked, this, [this]() {
+        if (deviceManager_ && deviceManager_->probeController()) {
+            deviceManager_->probeController()->setOrientation(Devices::Probe::ProbeOrientation::Hy);
+        }
+    });
+
+    return group;
+}
+
+void DevicePage::loadHardwareConfigToUi()
+{
+    if (!deviceManager_) {
+        return;
+    }
+    const Config::HardwareConfig config = deviceManager_->hardwareConfig();
+    if (hwMotionEnabledCheck_) {
+        hwMotionEnabledCheck_->setChecked(config.motion.enabled);
+    }
+    if (hwMotionPortEdit_) {
+        hwMotionPortEdit_->setText(config.motion.port);
+    }
+    if (hwSpectrumEnabledCheck_) {
+        hwSpectrumEnabledCheck_->setChecked(config.spectrum.enabled);
+    }
+    if (hwSpectrumTypeCombo_) {
+        hwSpectrumTypeCombo_->setCurrentText(config.spectrum.type);
+    }
+    if (hwSpectrumHostEdit_) {
+        hwSpectrumHostEdit_->setText(config.spectrum.address);
+    }
+    if (hwSpectrumPortEdit_) {
+        hwSpectrumPortEdit_->setText(QString::number(config.spectrum.port));
+    }
+    if (hwCameraEnabledCheck_) {
+        hwCameraEnabledCheck_->setChecked(config.camera.enabled);
+    }
+    if (hwCameraTypeCombo_) {
+        hwCameraTypeCombo_->setCurrentText(config.camera.type);
+    }
+    if (hwProbeEnabledCheck_) {
+        hwProbeEnabledCheck_->setChecked(config.probe.enabled);
+    }
+    if (hwProbeTypeCombo_) {
+        hwProbeTypeCombo_->setCurrentText(config.probe.type);
+    }
+    if (hwProbeOrientationCombo_) {
+        hwProbeOrientationCombo_->setCurrentText(config.probe.orientation);
+    }
+    if (serialPortCombo_ && serialPortCombo_->findText(config.motion.port) < 0) {
+        serialPortCombo_->addItem(config.motion.port);
+    }
+    if (serialPortCombo_) {
+        serialPortCombo_->setCurrentText(config.motion.port);
+    }
+}
+
+void DevicePage::saveHardwareConfigFromUi()
+{
+    if (!deviceManager_) {
+        return;
+    }
+    Config::HardwareConfig config = deviceManager_->hardwareConfig();
+    if (hwMotionEnabledCheck_) {
+        config.motion.enabled = hwMotionEnabledCheck_->isChecked();
+    }
+    if (hwMotionPortEdit_) {
+        config.motion.port = hwMotionPortEdit_->text().trimmed();
+    }
+    if (hwSpectrumEnabledCheck_) {
+        config.spectrum.enabled = hwSpectrumEnabledCheck_->isChecked();
+    }
+    if (hwSpectrumTypeCombo_) {
+        config.spectrum.type = hwSpectrumTypeCombo_->currentText().trimmed();
+    }
+    if (hwSpectrumHostEdit_) {
+        config.spectrum.address = hwSpectrumHostEdit_->text().trimmed();
+    }
+    if (hwSpectrumPortEdit_) {
+        config.spectrum.port = hwSpectrumPortEdit_->text().toInt();
+    }
+    if (hwCameraEnabledCheck_) {
+        config.camera.enabled = hwCameraEnabledCheck_->isChecked();
+    }
+    if (hwCameraTypeCombo_) {
+        config.camera.type = hwCameraTypeCombo_->currentText().trimmed();
+    }
+    if (hwProbeEnabledCheck_) {
+        config.probe.enabled = hwProbeEnabledCheck_->isChecked();
+    }
+    if (hwProbeTypeCombo_) {
+        config.probe.type = hwProbeTypeCombo_->currentText().trimmed();
+    }
+    if (hwProbeOrientationCombo_) {
+        config.probe.orientation = hwProbeOrientationCombo_->currentText().trimmed();
+    }
+    deviceManager_->setHardwareConfig(config);
+    deviceManager_->saveHardwareConfig();
 }
 
 } // namespace NFSScanner::UI

@@ -25,6 +25,8 @@ struct ScanConfig
 
     bool snakeMode = true;
 
+    QString probeOrientation = QStringLiteral("Hx");
+
     QString projectName;
     QString testName;
     QString outputDir;

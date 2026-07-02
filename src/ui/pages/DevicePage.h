@@ -98,6 +98,10 @@ private:
     void runSingleSpectrumSweep();
     void updateAnalyzerButtons(bool connected);
     void updateAnalyzerMethodHint(const QString &analyzerName);
+    QGroupBox *createHardwareConfigGroup();
+    QGroupBox *createDeviceTestGroup();
+    void loadHardwareConfigToUi();
+    void saveHardwareConfigFromUi();
     double readFrequencyWithUnit(QLineEdit *edit, QComboBox *unitCombo) const;
     bool ensureRealMotionReady();
     bool validateMotionTarget(double x, double y, double z);
@@ -152,6 +156,18 @@ private:
     QComboBox *stopFreqUnitCombo_ = nullptr;
     QComboBox *rbwUnitCombo_ = nullptr;
     QLabel *deviceDiscoveryLabel_ = nullptr;
+
+    QCheckBox *hwMotionEnabledCheck_ = nullptr;
+    QLineEdit *hwMotionPortEdit_ = nullptr;
+    QCheckBox *hwSpectrumEnabledCheck_ = nullptr;
+    QComboBox *hwSpectrumTypeCombo_ = nullptr;
+    QLineEdit *hwSpectrumHostEdit_ = nullptr;
+    QLineEdit *hwSpectrumPortEdit_ = nullptr;
+    QCheckBox *hwCameraEnabledCheck_ = nullptr;
+    QComboBox *hwCameraTypeCombo_ = nullptr;
+    QCheckBox *hwProbeEnabledCheck_ = nullptr;
+    QComboBox *hwProbeTypeCombo_ = nullptr;
+    QComboBox *hwProbeOrientationCombo_ = nullptr;
 
     NFSScanner::Devices::Spectrum::ISpectrumAnalyzer *currentAnalyzer_ = nullptr;
     NFSScanner::Devices::Spectrum::SpectrumConfig currentSpectrumConfig_;

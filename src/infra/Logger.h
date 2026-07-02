@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 namespace NFSScanner::Infra {
 
@@ -17,6 +18,9 @@ public:
     };
 
     explicit Logger(QObject *parent = nullptr);
+
+    static QStringList recentLines(int maxCount = 100);
+    static void appendGlobalHistory(const QString &line);
 
     static QString format(Level level, const QString &message);
 

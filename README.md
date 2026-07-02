@@ -1,20 +1,19 @@
 # NFS Scanner C++
 
-NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.10.0-alpha** 提供四页产品主框架、真实运动/频谱扫描、项目文件夹、离线分析、报告导出、Ed25519 授权校验与完整 Mock fallback。
+NFS Scanner C++ 是近场扫描系统的 C++17 / Qt 6 Widgets 正式产品主线工程。当前 **v0.11.0-hardware-alpha** 在 v0.10.0-alpha 基础上完成真实硬件软件层预实现：统一设备管理、硬件配置、扫描前 Checklist、诊断导出与 Mock fallback。
 
-## 当前版本：v0.10.0-alpha
+## 当前版本：v0.11.0-hardware-alpha
 
 | 能力 | 说明 |
 |------|------|
-| 四页主框架 | 扫描 / 设备 / 分析 / 报告（Project 仅文件菜单，非一级导航） |
-| 页面类 | `ScanPage`、`DevicePage`、`AnalysisPage`、`ReportPage` |
-| 设备管理 | `DeviceManager` + `DeviceStatusBar` 六芯片状态 |
-| 项目文件夹 | `ProjectManager`：`project.json`、`scans/`、`reports/`、`workspace/` 回退 |
-| Alignment | 线性矩形 + **四点透视**（`QTransform::quadToQuad`，无 OpenCV） |
-| 报告 | HTML / Markdown / PDF / PNG 集合 |
-| 授权 | `LicenseManager` + Ed25519 签名校验（见 [LICENSE_SIGNING.md](docs/migration/LICENSE_SIGNING.md)） |
-| 自检 | `NFSScannerSelfCheck.exe` — **47/47 PASS** |
-| 真实设备 | ZNA67 / FSW / N9020A SCPI + GRBL 串口运动（代码就绪，硬件需人工验证） |
+| 四页主框架 | 扫描 / 设备 / 分析 / 报告 |
+| 硬件配置 | `config/hardware_config.json` — 运动/频谱/相机/探头 |
+| 设备管理 | `DeviceManager` 统一 connect/disconnect/healthCheck |
+| 扫描前检查 | `PreScanChecklist` — error 阻止 / warning 可继续 |
+| 设备诊断 | Help → 诊断信息 → 导出 `logs/diagnostics_*.md` |
+| 探头方向 | 扫描参数 Hx/Hy → `scan_config.json` / 报告 |
+| 自检 | `NFSScannerSelfCheck.exe` — **84/84 PASS** |
+| 真实设备 | GRBL / SCPI / Mock 相机与探头（硬件需人工验证，见 [硬件联调指南](docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md)） |
 
 ---
 
@@ -60,7 +59,48 @@ $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;" + $env:PATH
 .\build\Release\NFSScannerSelfCheck.exe
 ```
 
-预期：`All self-check tests passed.`（47 项，含透视标定、traces.csv 解析、Ed25519 签名、项目路径、报告导出）
+预期：`All self-check tests passed.`（84 项，含硬件配置、Mock 设备、PreScanChecklist、诊断导出、probe_orientation）
+
+---
+
+## 真实硬件支持（v0.11.0-hardware-alpha）
+
+### 配置文件
+
+路径：`config/hardware_config.json`（首次运行可自动生成）
+
+```json
+{
+  "motion": { "enabled": false, "type": "grbl", "port": "COM3", "baudrate": 115200 },
+  "spectrum": { "enabled": false, "type": "mock", "address": "192.168.0.10", "port": 5025 },
+  "camera": { "enabled": false, "type": "mock", "save_dir": "images" },
+  "probe": { "enabled": false, "type": "mock", "orientation": "Hx" }
+}
+```
+
+### Mock / Real 切换
+
+- **运动**：设备页「模拟模式」勾选 = Mock；取消 + 串口连接 = Real
+- **频谱**：`spectrum.type=mock` 或设备页 Mock Spectrum；Real 需 TCP 5025 连接
+- **相机/探头**：默认 Mock；USB/工业相机与 Serial/SDK 探头为 Stub
+
+### 设备诊断
+
+菜单 **Help → 诊断信息**，导出至 `logs/diagnostics_YYYYMMDD_HHMMSS.md`
+
+### 扫描前 Checklist
+
+点击「开始扫描」后自动检查：项目、限位、设备连接、输出目录、Alignment（warning）、License
+
+### 现场联调
+
+详见 [docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md](docs/hardware/REAL_HARDWARE_BRINGUP_GUIDE.md)
+
+### 当前未接硬件限制
+
+- 启动时不自动连接设备；不写死 IP/COM
+- USB 相机 / 工业相机 / 真实探头控制待 SDK 或现场确认
+- 危险运动命令需用户显式点击
 
 ---
 

@@ -1,7 +1,20 @@
 # NFS Scanner C++ 实现 Backlog
 
 > 分支：`feature/full-python-pro-migration`  
-> 最后更新：2026-07-01
+> 最后更新：2026-07-02
+
+## v0.11.0-hardware-alpha（真实硬件预实现）
+
+| ID | 任务 | 状态 | 备注 |
+|----|------|------|------|
+| HW-1 | HardwareConfig + JSON 加载/保存 | [x] | `config/hardware_config.json` |
+| HW-2 | DeviceManager 统一 connect API | [x] | motion/spectrum/camera/probe |
+| HW-3 | PreScanChecklist | [x] | 扫描开始前 UI 对话框 |
+| HW-4 | HardwareDiagnostics 导出 | [x] | Help → 诊断信息 |
+| HW-5 | 探头 Hx/Hy + scan_config | [x] | Mock + Stub |
+| HW-6 | SelfCheck 扩展 | [x] | 84/84 PASS |
+| HW-7 | 硬件联调文档 | [x] | `docs/hardware/*` |
+| HW-8 | GRBL/SCPI 现场验证 | [!] | 需真实硬件 |
 
 状态：`[ ]` 待办 · `[~]` 进行中 · `[x]` 完成 · `[!]` 需人工验证
 

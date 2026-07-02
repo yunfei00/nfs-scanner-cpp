@@ -196,6 +196,7 @@ void ReportPage::exportReport(const QString &format)
     data.vmax = analysisPage_ ? analysisPage_->currentVmax() : 1.0;
     data.heatmapImage = analysisPage_ ? analysisPage_->heatmapImage() : QImage();
     data.notes = notesEdit_ && !notesEdit_->text().isEmpty() ? notesEdit_->text() : scanConfig.testName;
+    data.probeOrientation = scanConfig.probeOrientation;
 
     if (devicePage_) {
         const auto spectrumConfig = devicePage_->currentSpectrumConfig();
